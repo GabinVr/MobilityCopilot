@@ -13,7 +13,6 @@ uvicorn main:api --reload
 ```
 ## With Docker
 ```bash
-chmod -R 777 data/
 docker build -t mobilitycopilot:latest .
 docker run -p 8000:8000 mobilitycopilot:latest
 ```
