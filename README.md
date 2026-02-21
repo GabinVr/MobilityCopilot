@@ -36,14 +36,15 @@ mobilitycopilot/
 │   ├── state.py            # La logique de gestion d'état
 │   ├── graph.py            # Le workflow de raisonnement (le graphe de nœuds)
 │   ├── nodes/              # Les fichier avec la logique métier de chaque nœud (ex: exécution SQL...)
-│   │   ├── generate.py     # Exemple de nœud qui génère du texte avec un LLM
-│   └── tools.py            # Execution SQL/pandas
+│   │   └── generate.py     # Exemple de nœud qui génère du texte avec un LLM
+│   └──tools/               # Execution SQL/pandas, requête API, etc.
+│      └── sql_executor.py     # Exemple de tool pour exécuter des requêtes SQL sur sqlite
 ├── data/
 │   ├── ingest.py           # Script qui ingère les données (CSV, API, etc.) et les stocke dans db.sqlite 
 │   └── db.sqlite           # DB
 ├── tests/                  # Tests unitaires et d'intégration
 └── rag/
-    └── corpus_builder.py   # Script qui construit le corpus de RAG à partir de db.sqlite
+    └── corpus_builder.py   # Script qui construit le corpus de RAG
 ```
 
 # Contributing
