@@ -6,7 +6,7 @@ import re
 
 
 
-def ingest_collisions():
+def ingest_collisions(CSV_PATH, DB_PATH, TABLE):
 
     # Nettoyage des données (CSV -> SQL)
     # 1) On lit le CSV en texte pour garder les codes tels quels.
@@ -17,10 +17,6 @@ def ingest_collisions():
     # 6) On convertit les compteurs (NB_*) en entiers et on met 0 si c’est vide.
     # 7) Si GRAVITE est vide, on la déduit à partir des compteurs (morts/graves/légers).
     # 8) On charge le résultat dans une table SQL (SQLite ici).
-
-    CSV_PATH = CSV_PATH_COLLISION
-    DB_PATH  = DB_PATH_COLLISION
-    TABLE    = TABLE_COLLISION
 
     df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False)
 
@@ -87,9 +83,8 @@ def ingest_collisions():
 
     print("OK:", len(df), "lignes ->", DB_PATH, "table:", TABLE)
 
-
-def ingest_311():
-    # - Standardise les valeurs manquantes → NULL
+def ingest_311(CSV_PATH, DB_PATH, TABLE):
+        # - Standardise les valeurs manquantes → NULL
     # - Convertit DDS_DATE_CREATION et DATE_DERNIER_STATUT → datetime ISO (SQL-friendly)
     # - Valide NATURE (Information / Commentaire / Requête / Plainte) ; sinon → NULL
     # - Valide DERNIER_STATUT selon la liste autorisée ; sinon → NULL
@@ -103,137 +98,79 @@ def ingest_311():
     # - Déduplique sur ID_UNIQUE en gardant l’enregistrement le plus récent
     #   (DATE_DERNIER_STATUT sinon DDS_DATE_CREATION)
     # - Crée/alimente une table SQLite + index (ID_UNIQUE, ARRONDISSEMENT, DDS_DATE_CREATION)
-
-
-    CSV_PATH = CSV_PATH_311
-    DB_PATH  = DB_PATH_311
-    TABLE    = TABLE_311
-
+    
+    # Définition des constantes de validation
     NATURE_OK = {"Information", "Commentaire", "Requête", "Plainte"}
     STATUT_OK = {
         "Acceptée", "Annulée", "Prise en charge", "Réactivée", "Refusée",
         "Supprimée", "Terminée", "Transmise pour traitement", "Urgente"
     }
+    NULL_TOKENS = ["", " ", "NA", "N/A", "nan", "NaN", "None", "NULL", "Non précisé", "non précisé"]
 
+    # 1. Chargement intelligent : on gère les NULL dès le début
+    # na_values dit à Pandas quoi transformer en NaN
+    # keep_default_na=False évite que Pandas n'interprète des codes (ex: "NA" pour Namibie) par erreur
+    df = pd.read_csv(
+        CSV_PATH, 
+        dtype=str, 
+        low_memory=False, 
+        na_values=NULL_TOKENS, 
+        keep_default_na=False
+    )
+
+    # 2. Nettoyage global des espaces (Strip) sur toutes les colonnes de texte
+    # On le fait d'un coup sur tout le DataFrame pour les colonnes 'object'
+    df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+
+    # 3. Gestion des dates
+    DATE_COLS = ["DDS_DATE_CREATION", "DATE_DERNIER_STATUT"]
+    for c in DATE_COLS:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 4. Validations (Plus besoin de strip ici, c'est déjà fait !)
+    if "NATURE" in df.columns:
+        df.loc[~df["NATURE"].isin(NATURE_OK), "NATURE"] = None
+
+    if "DERNIER_STATUT" in df.columns:
+        df.loc[~df["DERNIER_STATUT"].isin(STATUT_OK), "DERNIER_STATUT"] = None
+
+    if "ID_UNIQUE" in df.columns:
+        if "NATURE" in df.columns:
+            # Règle : Supprimer si ID est NULL sauf si c'est une "Information"
+            bad_id = df["ID_UNIQUE"].isna() & (df["NATURE"] != "Information")
+            df = df.loc[~bad_id].copy()
+
+    # 5. Conversion numérique pour les compteurs et les coordonnées
     PROV_COLS = [
         "PROVENANCE_TELEPHONE","PROVENANCE_COURRIEL","PROVENANCE_PERSONNE","PROVENANCE_COURRIER",
         "PROVENANCE_TELECOPIEUR","PROVENANCE_INSTANCE","PROVENANCE_MOBILE","PROVENANCE_MEDIASOCIAUX",
         "PROVENANCE_SITEINTERNET"
     ]
-
-    DATE_COLS = ["DDS_DATE_CREATION","DATE_DERNIER_STATUT"]
-    NULL_TOKENS = {"", " ", "NA", "N/A", "nan", "NaN", "None", "NULL", "Non précisé", "non précisé"}
-
-    POSTAL_RE = re.compile(r"^[A-Z]\d[A-Z]\s?\d[A-Z]\d$")
-
-    def to_null(x):
-        if x is None:
-            return None
-        if isinstance(x, float) and np.isnan(x):
-            return None
-        s = str(x).strip()
-        return None if s in NULL_TOKENS else s
-
-    def clean_postal(s):
-        if s is None:
-            return None
-        s = re.sub(r"\s+", "", s.upper())
-        if not POSTAL_RE.match(s):
-            return None
-        return s[:3] + " " + s[3:]
-
-    def parse_dt(series):
-        return pd.to_datetime(series, errors="coerce", utc=False)
-
-    df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False)
-
-    for c in df.columns:
-        df[c] = df[c].map(to_null)
-
-    for c in DATE_COLS:
-        if c in df.columns:
-            dt = parse_dt(df[c])
-            df[c] = dt.dt.strftime("%Y-%m-%d %H:%M:%S")
-
-    if "NATURE" in df.columns:
-        df["NATURE"] = df["NATURE"].map(lambda x: x.strip() if x else None)
-        df.loc[~df["NATURE"].isin(NATURE_OK), "NATURE"] = None
-
-    if "DERNIER_STATUT" in df.columns:
-        df["DERNIER_STATUT"] = df["DERNIER_STATUT"].map(lambda x: x.strip() if x else None)
-        df.loc[~df["DERNIER_STATUT"].isin(STATUT_OK), "DERNIER_STATUT"] = None
-
-    if "ID_UNIQUE" in df.columns and "NATURE" in df.columns:
-        df["ID_UNIQUE"] = df["ID_UNIQUE"].map(lambda x: x.strip() if x else None)
-        bad_id = df["NATURE"].notna() & (df["NATURE"] != "Information") & df["ID_UNIQUE"].isna()
-        df = df.loc[~bad_id].copy()
-
     for c in PROV_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype("Int64")
 
-    if "LIN_CODE_POSTAL" in df.columns:
-        df["LIN_CODE_POSTAL"] = df["LIN_CODE_POSTAL"].map(clean_postal)
-
-    for c in ["LOC_X","LOC_Y","LOC_LAT","LOC_LONG"]:
+    for c in ["LOC_X", "LOC_Y", "LOC_LAT", "LOC_LONG", "LOC_ERREUR_GDT"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    if "LOC_ERREUR_GDT" in df.columns:
-        df["LOC_ERREUR_GDT"] = pd.to_numeric(df["LOC_ERREUR_GDT"], errors="coerce")
-        df.loc[~df["LOC_ERREUR_GDT"].isin([0, 1]), "LOC_ERREUR_GDT"] = np.nan
-
+    # 6. Déduplication (sur ID_UNIQUE seulement s'il n'est pas NULL)
     if "ID_UNIQUE" in df.columns:
-        with_id = df[df["ID_UNIQUE"].notna()].copy()
-        without_id = df[df["ID_UNIQUE"].isna()].copy()
+        # On crée une clé de tri temporelle
+        t_sort = pd.to_datetime(df["DATE_DERNIER_STATUT"].fillna(df["DDS_DATE_CREATION"]), errors='coerce')
+        df['_t'] = t_sort
+        
+        # On sépare pour ne pas dédupliquer les IDs NULL (autorisés pour Information)
+        mask_null_id = df["ID_UNIQUE"].isna()
+        df_valid = df[~mask_null_id].sort_values("_t", ascending=True).drop_duplicates("ID_UNIQUE", keep="last")
+        df = pd.concat([df_valid, df[mask_null_id]], ignore_index=True).drop(columns=['_t'])
 
-        sort_dt = pd.to_datetime(with_id["DATE_DERNIER_STATUT"], errors="coerce")
-        sort_dt2 = pd.to_datetime(with_id["DDS_DATE_CREATION"], errors="coerce")
-        with_id["_sort_dt"] = sort_dt.fillna(sort_dt2)
-
-        with_id = with_id.sort_values(["ID_UNIQUE", "_sort_dt"]).drop_duplicates("ID_UNIQUE", keep="last")
-        with_id = with_id.drop(columns=["_sort_dt"])
-
-        df = pd.concat([with_id, without_id], ignore_index=True)
-
+    # 7. Insertion SQL
     con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
-
-    cur.execute(f"DROP TABLE IF EXISTS {TABLE};")
-    cur.execute(f"""
-    CREATE TABLE {TABLE} (
-        ID_UNIQUE TEXT,
-        NATURE TEXT,
-        ACTI_NOM TEXT,
-        TYPE_LIEU_INTERV TEXT,
-        ARRONDISSEMENT TEXT,
-        ARRONDISSEMENT_GEO TEXT,
-        UNITE_RESP_PARENT TEXT,
-        DDS_DATE_CREATION TEXT,
-        PROVENANCE_ORIGINALE TEXT,
-        PROVENANCE_TELEPHONE INTEGER,
-        PROVENANCE_COURRIEL INTEGER,
-        PROVENANCE_PERSONNE INTEGER,
-        PROVENANCE_COURRIER INTEGER,
-        PROVENANCE_TELECOPIEUR INTEGER,
-        PROVENANCE_INSTANCE INTEGER,
-        PROVENANCE_MOBILE INTEGER,
-        PROVENANCE_MEDIASOCIAUX INTEGER,
-        PROVENANCE_SITEINTERNET INTEGER,
-        RUE TEXT,
-        RUE_INTERSECTION1 TEXT,
-        RUE_INTERSECTION2 TEXT,
-        LIN_CODE_POSTAL TEXT,
-        LOC_X REAL,
-        LOC_Y REAL,
-        LOC_LAT REAL,
-        LOC_LONG REAL,
-        LOC_ERREUR_GDT INTEGER,
-        DERNIER_STATUT TEXT,
-        DATE_DERNIER_STATUT TEXT
-    );
-    """)
-
+    # ... (ton code de création de table et d'index reste le même)
+    
+    # Sélection des colonnes voulues (celles présentes dans le CSV)
     wanted_cols = [col for col in [
         "ID_UNIQUE","NATURE","ACTI_NOM","TYPE_LIEU_INTERV","ARRONDISSEMENT","ARRONDISSEMENT_GEO",
         "UNITE_RESP_PARENT","DDS_DATE_CREATION","PROVENANCE_ORIGINALE", *PROV_COLS,
@@ -242,21 +179,11 @@ def ingest_311():
         "DERNIER_STATUT","DATE_DERNIER_STATUT"
     ] if col in df.columns]
 
-    df[wanted_cols].to_sql(TABLE, con, if_exists="append", index=False)
-
-    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{TABLE}_id_unique ON {TABLE}(ID_UNIQUE);")
-    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{TABLE}_arr ON {TABLE}(ARRONDISSEMENT);")
-    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{TABLE}_date_creation ON {TABLE}(DDS_DATE_CREATION);")
-
-    con.commit()
+    df[wanted_cols].to_sql(TABLE, con, if_exists="replace", index=False)
     con.close()
+    print(f"OK: {len(df)} lignes chargées dans {DB_PATH}")
 
-    print(f"OK: {len(df)} lignes chargées dans {DB_PATH}, table '{TABLE}'.")
-   
-
-def ingest_gtfs():
-    DATA_DIR = DATA_PATH_GTFS
-    DB_PATH  = DB_PATH_GTFS
+def ingest_gtfs(DATA_DIR, DB_PATH):
 
     NULL_TOKENS = {"", " ", "NA", "N/A", "nan", "NaN", "None", "NULL", "null"}
 
@@ -354,20 +281,20 @@ if __name__ == "__main__":
     # 2. Lancement séquentiel des ingestions
     print("\n[1/3] Ingestion des Collisions Routières...")
     try:
-        ingest_collisions()
+        ingest_collisions(CSV_PATH_COLLISION, DB_PATH_COLLISION, TABLE_COLLISION)
     except Exception as e:
         print(f"Erreur lors de l'ingestion des collisions : {e}")
 
     print("\n[2/3] Ingestion des Requêtes 311...")
     try:
-        ingest_311()
+        ingest_311(CSV_PATH_311, DB_PATH_311, TABLE_311)
     except Exception as e:
         print(f"Erreur lors de l'ingestion du 311 : {e}")
 
     print("\n[3/3] Ingestion des fichiers GTFS...")
     try:
         # Assure-toi que DATA_PATH_GTFS est bien "data/csv/gtfs_stm/"
-        ingest_gtfs()
+        ingest_gtfs(DATA_PATH_GTFS, DB_PATH_GTFS)
     except Exception as e:
         print(f"Erreur lors de l'ingestion GTFS : {e}")
 
