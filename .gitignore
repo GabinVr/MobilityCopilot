@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# langgraphapi
+.langgraph_api/
+
 # C extensions
 *.so
 
@@ -212,3 +215,7 @@ __marimo__/
 ressources/
 
 data/csv/
+csv/
+chromadb
+glossaries/
+manual_test*

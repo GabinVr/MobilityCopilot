@@ -1,7 +1,18 @@
+networks:
+  net:
+    driver: bridge
+    
 services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
+  chromadb:
+    # Pinned to match the Python chromadb client version.
+    image: chromadb/chroma:1.5.1 
     volumes:
-      - ./data:/app/data
+      - ./chromadb:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma # this is the default path, change it as needed
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-FALSE}
+    ports:
+      - 8000:8000
+    networks:
+      - net
