@@ -219,3 +219,5 @@ csv/
 chromadb
 glossaries/
 manual_test*
+db/
+.DS_Store
