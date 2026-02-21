@@ -134,7 +134,7 @@ def _build_sql_prompt(
 	)
 
 
-def sql_generator_node(state: CopilotState) -> Dict[str, Optional[str]]:
+def sql_generator_node(state: CopilotState) -> CopilotState:
 	user_question = _extract_latest_user_text(state)
 	if not user_question:
 		return {
@@ -163,8 +163,7 @@ def sql_generator_node(state: CopilotState) -> Dict[str, Optional[str]]:
 			"query_error": f"Unsafe or invalid SQL generated: {exc}",
 		}
 
-	return {
-		"generated_query": safe_sql,
-		"query_error": None,
-	}
+	state["generated_query"] = safe_sql
+	state["query_error"] = None
+	return state
 
