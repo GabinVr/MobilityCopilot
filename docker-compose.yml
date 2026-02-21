@@ -4,7 +4,8 @@ networks:
     
 services:
   chromadb:
-    image: chromadb/chroma:0.6.3 
+    # Pinned to match the Python chromadb client version.
+    image: chromadb/chroma:1.5.1 
     volumes:
       - ./chromadb:/chroma/chroma
     environment:

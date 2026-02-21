@@ -212,3 +212,6 @@ __marimo__/
 ressources/
 csv/
 chromadb
+glossaries/
+test_*
+manual_test*
