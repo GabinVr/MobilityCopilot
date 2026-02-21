@@ -1,7 +1,7 @@
 # MobilityCopilot
 
 [![MobilityCopilot](https://github.com/GabinVr/MobilityCopilot/actions/workflows/python-app.yml/badge.svg)](https://github.com/GabinVr/MobilityCopilot/actions/workflows/python-app.yml)
-[![codecov](https://codecov.io/gh/GabinVr/MobilityCopilot/branch/main/graph/badge.svg?token=YOUR_TOKEN)](https://codecov.io/gh/GabinVr/MobilityCopilot)
+[![codecov](https://codecov.io/gh/GabinVr/MobilityCopilot/branch/main/graph/badge.svg?token=K78L5W5CKX)](https://codecov.io/gh/GabinVr/MobilityCopilot)
 
 # Run the app
 ## With a virtual environment:
