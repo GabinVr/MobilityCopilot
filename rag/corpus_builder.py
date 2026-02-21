@@ -106,6 +106,22 @@ class ChromaVectorRepository(VectorRepository):
         )
         logger.info("Documents sauvegardés avec succès.")
 
+    def query(self, query_texts: List[str], n_results: int) -> List[Document]:
+        collection = self.client.get_or_create_collection(self.collection_name)
+        results = collection.query(
+            query_texts=query_texts,
+            n_results=n_results,
+            include=["documents", "metadatas"],
+        )
+        documents = (results.get("documents", []) or [[]])[0]
+        metadatas = (results.get("metadatas", []) or [[]])[0]
+
+        docs: List[Document] = []
+        for idx, content in enumerate(documents):
+            metadata = metadatas[idx] if idx < len(metadatas) else {}
+            docs.append(Document(page_content=content, metadata=metadata))
+        return docs
+
     def get_all_documents(self) -> List[Document]:
         collection = self.client.get_or_create_collection(self.collection_name)
         results = collection.get(include=["documents", "metadatas"])
