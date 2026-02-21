@@ -262,16 +262,16 @@ def ingest_gtfs(DATA_DIR, DB_PATH):
 if __name__ == "__main__":
 
     CSV_PATH_COLLISION = "data/csv/collisions_routieres.csv"
-    DB_PATH_COLLISION = "data/db/collisions.db"
+    DB_PATH_COLLISION = "data/db/mobility.db"
     TABLE_COLLISION = "collisions"
 
 
     CSV_PATH_311 = "data/csv/requetes311.csv"
-    DB_PATH_311 = "data/db/demandes.db"
+    DB_PATH_311 = "data/db/mobility.db"
     TABLE_311 = "demandes"
 
     DATA_PATH_GTFS = "data/csv/gtfs_stm/"
-    DB_PATH_GTFS  = "data/db/gtfs_all.db"
+    DB_PATH_GTFS  = "data/db/mobility.db"
 
     # 1. Création du dossier pour les bases de données (obligatoire pour SQLite)
     # Si le dossier data/db n'existe pas, SQLite lèvera une erreur.
