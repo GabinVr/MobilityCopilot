@@ -7,7 +7,7 @@ def execute_sql_node(state: CopilotState) -> CopilotState:
     """
     Exécute la requête SQL sur la base centralisée mobility.db.
     """
-    query = "SELECT name FROM sqlite_master WHERE type='table';"
+    query = state.get("generated_query")
     
     # --- Gestion du chemin Robuste ---
     # On remonte de core/nodes/ vers la racine pour atteindre data/db/
