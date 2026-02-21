@@ -213,3 +213,7 @@ __marimo__/
 *.sqlite
 .venv
 ressources/
+csv/
+chromadb
+glossaries/
+manual_test*
