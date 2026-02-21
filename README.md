@@ -2,12 +2,19 @@
 
 
 # Run the app
+## With a virtual environment:
 ```bash
 python -m venv .venv
 source .venv/bin/activate 
 pip install -r requirements.txt
 uvicorn main:api --reload
 ```
+## With Docker
+```bash
+docker build -t mobilitycopilot:latest .
+docker run -p 8000:8000 mobilitycopilot:latest
+```
+## ENJOY !
 Watch the current API endpoint once the server is running:
 `http://127.0.0.1:8000/docs`
 
