@@ -210,3 +210,4 @@ __marimo__/
 *.sqlite
 .venv
 ressources/
+csv/
