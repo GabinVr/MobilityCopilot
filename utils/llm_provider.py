@@ -19,6 +19,15 @@ def _parse_optional_int(value: Optional[str]) -> Optional[int]:
         raise ValueError(f"Expected integer value, got: {value!r}") from exc
 
 
+def _parse_optional_float(value: Optional[str]) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(f"Expected float value, got: {value!r}") from exc
+
+
 def get_llm() -> Any:
     """Return an initialized LangChain chat model from the selected provider."""
     provider = os.getenv("LLM_PROVIDER", "ollama").lower()
@@ -67,6 +76,29 @@ def get_llm() -> Any:
             model=os.getenv("OPENAI_MODEL", "gpt-4"),
             temperature=0,
         )
+
+    if provider in ("github_models", "github"):
+        from langchain_openai import ChatOpenAI
+
+        token = os.getenv("GITHUB_MODEL_TOKEN")
+        if not token:
+            raise ValueError("GITHUB_MODEL_TOKEN is required for GitHub Models (needs models:read)")
+
+        # IMPORTANT: model IDs are like "openai/gpt-4.1" (publisher/model_name).
+        # The Marketplace page slug may not be the exact ID; check the catalog if unsure.
+        kwargs = {
+            "api_key": token,
+            "base_url": os.getenv("GITHUB_MODELS_BASE_URL", "https://models.github.ai/inference"),
+            "model": os.getenv("GITHUB_MODEL", "openai/gpt-5"),
+            "default_headers": {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        }
+        temperature = _parse_optional_float(os.getenv("GITHUB_MODEL_TEMPERATURE"))
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        return ChatOpenAI(**kwargs)
 
     raise ValueError(
         f"Unsupported LLM provider: {provider}. Supported providers: "
@@ -209,6 +241,58 @@ class OpenAIProvider(LLMProvider):
         return f"OpenAI ({self.model})"
 
 
+class GitHubModelsProvider(LLMProvider):
+    """Provider for GitHub Models (via GitHub AI Inference)."""
+
+    def __init__(self,
+                 token: Optional[str] = None,
+                 model: Optional[str] = None,
+                 base_url: Optional[str] = None,
+                 temperature: Optional[float] = None,
+                 max_tokens: Optional[int] = None,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.token = token or os.getenv("GITHUB_MODEL_TOKEN")
+        self.model = model or os.getenv("GITHUB_MODEL", "openai/gpt-5")
+        self.base_url = base_url or os.getenv("GITHUB_MODELS_BASE_URL", "https://models.github.ai/inference")
+        self.temperature = (
+            temperature
+            if temperature is not None
+            else _parse_optional_float(os.getenv("GITHUB_MODEL_TEMPERATURE"))
+        )
+        self.max_tokens = max_tokens if max_tokens is not None else _parse_optional_int(os.getenv("LLM_MAX_TOKENS"))
+
+        if not self.token:
+            raise ValueError("GITHUB_MODEL_TOKEN is required for GitHub Models (needs models:read)")
+
+    def initialize(self) -> Any:
+        try:
+            from langchain_openai import ChatOpenAI
+
+            kwargs = {
+                "api_key": self.token,
+                "base_url": self.base_url,
+                "model": self.model,
+                "max_tokens": self.max_tokens,
+                "default_headers": {
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                **self.kwargs,
+            }
+            if self.temperature is not None:
+                kwargs["temperature"] = self.temperature
+
+            self.llm = ChatOpenAI(**kwargs)
+            logger.info("Initialized GitHub Models '%s'", self.model)
+            return self.llm
+        except ImportError:
+            raise ImportError("GitHub Models provider requires: pip install langchain-openai")
+
+    def get_name(self) -> str:
+        return f"GitHub Models ({self.model})"
+
+
 class MistralProvider(LLMProvider):
     """Provider for Mistral AI."""
     
@@ -301,6 +385,8 @@ class LLMFactory:
         "openai": OpenAIProvider,
         "mistral": MistralProvider,
         "gemini": GeminiProvider,
+        "github_models": GitHubModelsProvider,
+        "github": GitHubModelsProvider,
     }
     
     @classmethod
