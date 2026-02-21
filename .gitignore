@@ -213,7 +213,11 @@ __marimo__/
 *.sqlite
 .venv
 ressources/
+
+data/csv/
 csv/
 chromadb
 glossaries/
 manual_test*
+db/
+.DS_Store
