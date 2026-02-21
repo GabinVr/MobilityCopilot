@@ -37,3 +37,12 @@ For each new feature or bug fix:
 5. Push your branch to the remote repository.
 6. Open a pull request against the `main` branch, describing the changes and their purpose.
 
+```sh
+git checkout -b feature/new-node
+# Make changes
+git add .
+git commit -m "Add new node for database querying"
+git push origin feature/new-node
+# You will be prompted to open a pull request on GitHub
+# Click on the link to open the PR and provide a description of your changes
+```
