@@ -8,6 +8,7 @@ services:
     image: chromadb/chroma:1.5.1 
     volumes:
       - ./chromadb:/chroma/chroma
+      - ./data:/app/data
     environment:
       - IS_PERSISTENT=TRUE
       - PERSIST_DIRECTORY=/chroma/chroma # this is the default path, change it as needed
