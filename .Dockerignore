@@ -1,11 +1,66 @@
+# Git
 .git
+.gitignore
+.gitattributes
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.env
+*.so
+.Python
+
+# Virtual environments
 .venv
+venv/
+ENV/
+env/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tests & Coverage
 tests/
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node/Bun (for backend)
+node_modules/
+bun.lockb
+
+# Frontend (not needed for backend API)
 view/
-data/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.installed.cfg
+
+# Database files
+*.db-journal
+
+# Documentation & old files
+*.md
+*.old
+*.bak
+docs/
+
+# Misc
+*.log
+tmp/
+temp/
+.gitkeep

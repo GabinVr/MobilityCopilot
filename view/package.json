@@ -10,10 +10,11 @@
     "test": "bun test"
   },
   "dependencies": {
-    "elysia": "latest",
     "@elysiajs/html": "latest",
     "@elysiajs/static": "latest",
     "@supabase/supabase-js": "latest",
+    "elysia": "latest",
+    "esbuild": "^0.27.3",
     "htmx.org": "latest"
   },
   "devDependencies": {
