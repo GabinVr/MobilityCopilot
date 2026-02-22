@@ -1,8 +1,3 @@
-import importlib
-import sys
-import types
-from types import SimpleNamespace
-
 import pytest
 
 
@@ -11,39 +6,13 @@ class FakeHumanMessage:
         self.content = content
         self.type = "human"
 
-
-def _import_validator_module():
-    langgraph_pkg = sys.modules.setdefault("langgraph", types.ModuleType("langgraph"))
-    graph_pkg = sys.modules.setdefault("langgraph.graph", types.ModuleType("langgraph.graph"))
-    message_mod = sys.modules.setdefault(
-        "langgraph.graph.message", types.ModuleType("langgraph.graph.message")
-    )
-    setattr(message_mod, "add_messages", lambda messages: messages)
-    setattr(graph_pkg, "message", message_mod)
-    setattr(langgraph_pkg, "graph", graph_pkg)
-
-    langchain_core_pkg = sys.modules.setdefault(
-        "langchain_core", types.ModuleType("langchain_core")
-    )
-    lc_messages_mod = sys.modules.setdefault(
-        "langchain_core.messages", types.ModuleType("langchain_core.messages")
-    )
-    setattr(lc_messages_mod, "AnyMessage", object)
-    setattr(lc_messages_mod, "HumanMessage", FakeHumanMessage)
-    setattr(langchain_core_pkg, "messages", lc_messages_mod)
-
-    lc_utils_mod = sys.modules.setdefault(
-        "langchain_community.utilities", types.ModuleType("langchain_community.utilities")
-    )
-    setattr(lc_utils_mod, "SQLDatabase", object)
-
-    module = importlib.import_module("core.nodes.validator")
-    return importlib.reload(module)
-
-
 @pytest.fixture
-def validator_module():
-    return _import_validator_module()
+def validator_module(core_node_importer):
+    return core_node_importer(
+        "core.nodes.validator",
+        message_symbols={"HumanMessage": FakeHumanMessage},
+        extra_modules={"langchain_community.utilities": {"SQLDatabase": object}},
+    )
 
 
 def test_execute_sql_node_returns_error_when_query_missing(validator_module) -> None:
