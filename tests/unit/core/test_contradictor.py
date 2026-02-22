@@ -33,7 +33,7 @@ def test_contradictor_node_returns_error_when_llm_missing(
 
     result = contradictor_module.contradictor_node({})
 
-    assert result["contradictory_response"] is None
+    assert result["contradictor_notes"] is None
     assert result["error"] == "LLM is not configured."
 
 
