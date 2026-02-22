@@ -225,3 +225,4 @@ glossaries/
 manual_test*
 db/
 .DS_Store
+*.old
