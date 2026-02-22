@@ -1,42 +1,11 @@
-import importlib
-import sys
-import types
 from types import SimpleNamespace
 
 import pytest
 
 
-def _import_ambiguity_module():
-    langgraph_pkg = sys.modules.setdefault("langgraph", types.ModuleType("langgraph"))
-    graph_pkg = sys.modules.setdefault("langgraph.graph", types.ModuleType("langgraph.graph"))
-    message_mod = sys.modules.setdefault(
-        "langgraph.graph.message", types.ModuleType("langgraph.graph.message")
-    )
-    setattr(message_mod, "add_messages", lambda messages: messages)
-    setattr(graph_pkg, "message", message_mod)
-    setattr(langgraph_pkg, "graph", graph_pkg)
-
-    langchain_core_pkg = sys.modules.setdefault(
-        "langchain_core", types.ModuleType("langchain_core")
-    )
-    lc_messages_mod = sys.modules.setdefault(
-        "langchain_core.messages", types.ModuleType("langchain_core.messages")
-    )
-    setattr(lc_messages_mod, "AnyMessage", object)
-    setattr(langchain_core_pkg, "messages", lc_messages_mod)
-
-    llm_provider_mod = sys.modules.setdefault(
-        "utils.llm_provider", types.ModuleType("utils.llm_provider")
-    )
-    setattr(llm_provider_mod, "get_llm", lambda: None)
-
-    module = importlib.import_module("core.nodes.ambiguity_detector")
-    return importlib.reload(module)
-
-
 @pytest.fixture
-def ambiguity_module():
-    return _import_ambiguity_module()
+def ambiguity_module(core_node_importer):
+    return core_node_importer("core.nodes.ambiguity_detector")
 
 
 def test_ambiguity_node_returns_structured_fields(
