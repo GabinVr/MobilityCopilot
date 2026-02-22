@@ -3,35 +3,13 @@ import re
 
 from core.state import CopilotState
 from utils.llm_provider import get_llm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class AmbiguityOutput(BaseModel):
-    is_ambiguous: bool
-    clarification_options: list[str]
+    is_ambiguous: bool = Field(description="Indicates if the user's question is ambiguous and requires clarification.")
+    clarification_options: list[str] = Field(description="If the question is ambiguous, this list contains 2-3 hypotheses or options to clarify the user's intent. If not ambiguous, this can be an empty list.")
+    need_external_data: bool = Field(description="True if the question requires external data (e.g., weather with API, historical trends, statistics, 311 request) False if the question can be answered with general knowledge or reasoning without specific data.")
 
-
-def _parse_ambiguity_output(raw_response) -> AmbiguityOutput:
-    if isinstance(raw_response, AmbiguityOutput):
-        return raw_response
-
-    content = getattr(raw_response, "content", raw_response)
-    text = content if isinstance(content, str) else str(content)
-    text = text.strip()
-
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
-    if fenced:
-        text = fenced.group(1).strip()
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            raise ValueError("Ambiguity detector output is not valid JSON")
-        data = json.loads(text[start:end + 1])
-
-    return AmbiguityOutput.model_validate(data)
 
 def ambiguity_node(state: CopilotState) -> CopilotState:
     llm = get_llm()
@@ -63,24 +41,18 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     4. If the question is "fuzzy" (e.g., "where are the problems?"), set is_ambiguous to True.
     5. If ambiguous, use the GLOSSARY to propose 2-3 hypotheses (e.g., "Do you mean 311 pothole requests or severe collisions?").
     6. If the question is clear and matches categories in the glossary, set is_ambiguous to False.
-
-    OUTPUT FORMAT (JSON ONLY):
-    {{
-      "is_ambiguous": boolean,
-      "clarification_options": ["option 1", "option 2"]
-    }}
+    7. If the question is clear but requires specific data to answer (e.g., "How many 311 requests were there last month in downtown?"), set need_external_data to True.
+    8. If the question is clear but requires an API call to get current weather or historical trends, set need_external_data to True.
+    9. If the question is clear and can be answered with general knowledge or reasoning without specific data, set need_external_data to False.
+    
     """
 
-    try:
-        response = llm.with_structured_output(AmbiguityOutput).invoke(prompt)
-    except Exception:
-        response = llm.invoke(prompt)
-
-    parsed = _parse_ambiguity_output(response)
+    response = llm.with_structured_output(AmbiguityOutput).invoke(prompt)
 
     return {
-        "is_ambiguous": parsed.is_ambiguous,
-        "clarification_options": parsed.clarification_options
+    "is_ambiguous": response.is_ambiguous,
+    "clarification_options": response.clarification_options,
+    "need_external_data": response.need_external_data
     }
 
 
