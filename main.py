@@ -35,8 +35,18 @@ class CollisionHeatMapRequest(BaseModel):
     severely_injured_nb: Optional[int] = Field(default=None, ge=0)
     lightly_injured_nb: Optional[int] = Field(default=None, ge=0)
 
+class CollisionData(BaseModel):
+    lat: float = Field(description="Latitude de la collision")
+    lon: float = Field(description="Longitude de la collision")
+    severity: str = Field(description="Niveau de gravité")
+    deaths: int = Field(description="Nombre de décès")
+    severely_injured: int = Field(description="Nombre de blessés graves")
+    lightly_injured: int = Field(description="Nombre de blessés légers")
+    date: str = Field(description="Date de la collision")
+    id: str = Field(description="Identifiant unique de la collision")
+
 class CollisionHeatMapResponse(BaseModel):
-    collisions: List[Dict[str, Any]]
+    collisions: List[CollisionData]
     total_count: int
 
 class WeatherCorrelationRequest(BaseModel):
