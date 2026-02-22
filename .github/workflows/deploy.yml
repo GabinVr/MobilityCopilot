@@ -12,11 +12,11 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H 159.203.37.57 >> ~/.ssh/known_hosts 2>/dev/null || true
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v0.1.3
         with:
-          host: ${{ secrets.HOST }}
+          host: 159.203.37.57
           username: deploy
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
