@@ -36,32 +36,6 @@ _FORBIDDEN_SQL_KEYWORDS = {
 	"CALL",
 }
 
-
-def _extract_latest_user_text(state: CopilotState) -> str:
-	messages = state.get("messages", [])
-	for message in reversed(messages):
-		message_type = getattr(message, "type", "")
-		if message_type != "human":
-			continue
-
-		content = getattr(message, "content", "")
-		if isinstance(content, str):
-			return content.strip()
-
-		if isinstance(content, list):
-			text_chunks = []
-			for chunk in content:
-				if isinstance(chunk, dict):
-					text_chunks.append(str(chunk.get("text", "")))
-				else:
-					text_chunks.append(str(chunk))
-			return "\n".join(text_chunks).strip()
-
-		return str(content).strip()
-
-	return ""
-
-
 def _strip_llm_wrappers(raw_text: str) -> str:
 	text = (raw_text or "").strip()
 	if not text:
@@ -109,31 +83,6 @@ def _sanitize_sql_query(candidate: str) -> str:
 			raise ValueError(f"Forbidden SQL keyword detected: {keyword}")
 
 	return sql
-
-
-def _build_sql_prompt(
-	user_question: str,
-	audience: str,
-	retrieved_context: Optional[str],
-	previous_error: Optional[str],
-) -> str:
-	context_block = retrieved_context.strip() if retrieved_context else "No schema context provided."
-	error_block = previous_error.strip() if previous_error else "None"
-
-	return (
-		"You are an expert SQL generator for mobility analytics.\n"
-		"Generate exactly ONE safe, read-only SQL query answering the user question.\n"
-		"Rules:\n"
-		"1) Output SQL only (no markdown, no explanation, no tags).\n"
-		"2) Read-only query only: SELECT or WITH ... SELECT.\n"
-		"3) Never use DDL/DML/transaction keywords (INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, etc.).\n"
-		"4) Use only tables/columns from the schema context.\n"
-		"5) Keep the query valid and concise.\n\n"
-		f"Audience: {audience}\n"
-		f"Schema/Glossary context:\n{context_block}\n\n"
-		f"Previous execution error (if any): {error_block}\n\n"
-		f"User question: {user_question}\n"
-	)
 
 
 def sql_generator_node(state: CopilotState) -> CopilotState:
