@@ -12,7 +12,7 @@ jobs:
         with:
           host: ${{ secrets.HOST }}
           username: deploy
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             cd /home/deploy/hackathon
             git pull origin main
