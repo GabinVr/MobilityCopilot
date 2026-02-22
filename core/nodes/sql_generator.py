@@ -105,12 +105,6 @@ def sql_generator_node(state: CopilotState) -> CopilotState:
 			"query_error": "Configured LLM does not support tool binding (bind_tools).",
 		}
 
-	if not hasattr(llm, "tool_calls"):
-		return {
-			"generated_query": None,
-			"query_error": "Configured LLM does not support tool call tracking (tool_calls).",
-		}
-
 	tools = [geomet_mtl_weather_text_bundle,geomet_mtl_history_global_tool]
 	llm_with_tools = llm.bind_tools(tools)
 
