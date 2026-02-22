@@ -86,7 +86,24 @@ def _sanitize_sql_query(candidate: str) -> str:
 
 
 def sql_generator_node(state: CopilotState) -> CopilotState:
+	messages = state.get("messages", [])
+	if not any(getattr(message, "type", None) == "human" for message in messages):
+		return {
+			"generated_query": None,
+			"query_error": "No user question found in messages.",
+		}
+
 	llm = get_llm()
+	if llm is None:
+		return {
+			"generated_query": None,
+			"query_error": "LLM is not configured.",
+		}
+	if not hasattr(llm, "bind_tools"):
+		return {
+			"generated_query": None,
+			"query_error": "Configured LLM does not support tool binding (bind_tools).",
+		}
 
 	tools = [geomet_mtl_weather_text_bundle,geomet_mtl_history_global_tool]
 	llm_with_tools = llm.bind_tools(tools)
@@ -101,9 +118,9 @@ def sql_generator_node(state: CopilotState) -> CopilotState:
         f"Context: {state.get('retrieved_context')}"
 	)
 
-	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + state.get("messages", []))
+	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + messages)
 
-	if response.tool_calls:
+	if getattr(response, "tool_calls", None):
 		return {"generated_query": None, "messages": [response]}
 	
 	raw_text = response.content
@@ -126,5 +143,5 @@ def sql_generator_node(state: CopilotState) -> CopilotState:
 		return {
 			"generated_query": None,
 			"messages": [response],
-			"query_error": error_message
+			"query_error": f"Unsafe or invalid SQL generated: {error_message}"
 		}
