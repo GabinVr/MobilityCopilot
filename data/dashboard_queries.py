@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 import sqlite3
 import re
 import os
+from data.weather_api import MontrealWeatherAPI
 from pathlib import Path
 
 LOCAL_DIR = Path(__file__).parent
@@ -190,15 +191,7 @@ class WeatherCorrelationQuery(DashboardQuery):
             }
         """
         from collections import defaultdict
-        
-        try:
-            # Import de l'API météo (doit être dans le même dossier)
-            from weather_api import MontrealWeatherAPI
-        except ImportError:
-            return {
-                "error": "MontrealWeatherAPI not found. Make sure weather_api.py is in the same directory."
-            }
-        
+                
         # 1. Récupérer les données météo historiques
         weather_api = MontrealWeatherAPI()
         weather_data = weather_api.get_historical_weather(
@@ -452,8 +445,6 @@ class CollisionHeatMapQuery(DashboardQuery):
         # The database stores dates as YYYY/MM/DD strings
         start_date_db = start_date.replace('-', '/')
         end_date_db = end_date.replace('-', '/')
-        
-        # Build SQL query with filters
         query = """
             SELECT DT_ACCDN, GRAVITE, NB_MORTS, NB_BLESSES_GRAVES, NB_BLESSES_LEGERS, 
                    LOC_LAT, LOC_LONG, NO_SEQ_COLL
@@ -499,7 +490,8 @@ class CollisionHeatMapQuery(DashboardQuery):
                 lat = float(loc_lat)
                 lon = float(loc_long)
                 # Validate coordinates are in Montreal area (approx 45°N, -73°W)
-                if not (44 <= lat <= 46 and -74 <= lon <= -72):
+                # Montreal spans roughly -74.5°W to -71.5°W, 44.5°N to 45.8°N
+                if not (44 <= lat <= 46 and -75 <= lon <= -71):
                     continue
             except (ValueError, TypeError):
                 continue
@@ -514,6 +506,14 @@ class CollisionHeatMapQuery(DashboardQuery):
                 severely_injured = 0
                 lightly_injured = 0
             
+            # Convert date to string and id
+            try:
+                date_str = str(dt_accdn) if dt_accdn else ""
+                # NO_SEQ_COLL is already a string like "SPVM _ 2021 _ 10370"
+                collision_id = str(no_seq) if no_seq else ""
+            except (ValueError, TypeError):
+                continue
+            
             collisions.append({
                 "lat": lat,
                 "lon": lon,
@@ -521,8 +521,8 @@ class CollisionHeatMapQuery(DashboardQuery):
                 "deaths": deaths,
                 "severely_injured": severely_injured,
                 "lightly_injured": lightly_injured,
-                "date": dt_accdn,
-                "id": no_seq
+                "date": date_str,
+                "id": collision_id
             })
         
         return {
@@ -541,8 +541,8 @@ if __name__ == "__main__":
     # Test CollisionHeatMapQuery
     print("\n=== CollisionHeatMapQuery ===")
     query2 = CollisionHeatMapQuery(db_path="db/mobility.db")
-    result2 = query2.execute(time_range='2023-01-01 to 2023-12-31', severity_filter=4)
-    print(f"Total collisions mortelles en 2023: {result2['total_count']}")
+    result2 = query2.execute(time_range='2020-01-01 to 2020-12-31', severity_filter=4)
+    print(f"Total collisions mortelles en 2020: {result2['total_count']}")
     if result2['collisions']:
         print("Premier exemple:")
         print(json.dumps(result2['collisions'][0], indent=2, ensure_ascii=False))

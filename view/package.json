@@ -1,0 +1,27 @@
+{
+  "name": "mobilitycerulot-web",
+  "version": "1.0.0",
+  "description": "Web interface for MobilityCopilot - BETH Stack",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun run --bun esbuild src/index.ts --bundle --platform=node --target=es2020 --outfile=dist/index.js",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "elysia": "latest",
+    "@elysiajs/html": "latest",
+    "@elysiajs/static": "latest",
+    "@supabase/supabase-js": "latest",
+    "htmx.org": "latest"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "latest",
+    "@types/bun": "latest"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}
