@@ -118,9 +118,9 @@ def sql_generator_node(state: CopilotState) -> CopilotState:
 		f"Context: {state.get('retrieved_context')}"
 	)
 
-	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + state.get("messages", []))
+	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + messages)
 
-	if response.tool_calls:
+	if getattr(response, "tool_calls", None):
 		return {"generated_query": None, "messages": [response]}
 	
 	raw_text = response.content
