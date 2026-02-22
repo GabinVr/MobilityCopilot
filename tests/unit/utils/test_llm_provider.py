@@ -54,6 +54,7 @@ def test_github_models_provider_passes_temperature_when_set(
 def test_get_llm_github_models_defaults(monkeypatch: pytest.MonkeyPatch, llm_provider_module) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "github")
     monkeypatch.setenv("GITHUB_MODEL_TOKEN", "token")
+    monkeypatch.delenv("GITHUB_MODEL", raising=False)
     monkeypatch.delenv("GITHUB_MODEL_TEMPERATURE", raising=False)
 
     llm_provider_module.get_llm()
