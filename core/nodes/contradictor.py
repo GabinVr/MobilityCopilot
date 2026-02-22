@@ -6,7 +6,7 @@ def contradictor_node(state: CopilotState) -> CopilotState:
     llm = get_llm()
     if llm is None:
         return {
-            "contradictory_response": None,
+            "contradictor_notes": None,
             "error": "LLM is not configured.",
         }
     
@@ -22,11 +22,11 @@ def contradictor_node(state: CopilotState) -> CopilotState:
     1. Identify limitations : if the SQL data is empty or incomplete, highlight this and explain how it affects the final answer.
     2. Cite the sources : is informations come from 311, remind that 311 data is based on user reports and may not be comprehensive or fully accurate.
     3. Security alert : always emphasize that real-world condition take precedence over the application.
-    4. Detect uncertainty : if the copilot seems overconfident when data is uotdated or incomplete, moderate thir statements and highlight the need for human judgement.
+    4. Detect uncertainty : if the copilot seems overconfident when data is uotdated or incomplete, moderate their statements and highlight the need for human judgement.
 
     INSTRUCTIONS:
     1. Produce a short report (2-3 sentences)
-    2. Be constructive but firm onthe need for caution.
+    2. Be constructive but firm on the need for caution.
     """
 
     prompt_context = f"""
@@ -39,4 +39,5 @@ def contradictor_node(state: CopilotState) -> CopilotState:
     response = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=prompt_context)])
 
     return {
-        "contradictor_notes": response.content}
+        "contradictor_notes": response.content,
+        }
