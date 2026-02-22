@@ -6,6 +6,11 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List
 import sqlite3
 import re
+import os
+from pathlib import Path
+
+LOCAL_DIR = Path(__file__).parent
+DEFAULT_DB_PATH = os.path.join(LOCAL_DIR, "db/mobility.db")
 
 def parse_time_range(time_range: str) -> tuple[str, str]:
     """ 
@@ -35,12 +40,12 @@ def parse_time_range(time_range: str) -> tuple[str, str]:
     return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
 class DashboardQuery(ABC):
-    def __init__(self, db_path: str = "./db/mobility.db"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
         super().__init__()
         self.db_path = db_path
         self.conn = None
     
-    def connect(self):
+    def connect(self):  
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path)
     
@@ -54,7 +59,7 @@ class DashboardQuery(ABC):
         pass
 
 class WordCloudQuery311(DashboardQuery):
-    def __init__(self, db_path: str = "./db/mobility.db"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
         super().__init__(db_path)
         self.not_allowed_words = set(["des", "d", "de"])
     
@@ -112,17 +117,287 @@ class WordCloudQuery311(DashboardQuery):
         }
 
 class WeatherCorrelationQuery(DashboardQuery):
-    def execute(self, **kwargs) -> Dict:
-        # Placeholder for weather correlation query implementation
-        return {"message": "Weather correlation query not implemented yet."}
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
+        super().__init__(db_path)
     
+    def execute(self, 
+                start_date: str,
+                end_date: str,
+                frequency: str = "week",
+                **kwargs) -> Dict:
+        """
+        Analyse la corrélation entre les conditions météorologiques et les collisions routières.
+        
+        Args:
+            start_date (str): Date de début au format YYYY-MM-DD
+            end_date (str): Date de fin au format YYYY-MM-DD
+            frequency (str): Fréquence d'agrégation ('week' ou 'month'). Défaut: 'week'
+            
+        Returns:
+            Dict: Dictionnaire contenant l'analyse de corrélation avec :
+                - summary: Résumé global (total périodes, total collisions, moyenne)
+                - correlations: Liste des périodes avec données météo et collisions
+                - temperature_analysis: Statistiques par plages de température
+                - precipitation_analysis: Statistiques par plages de précipitations
+                - snow_analysis: Statistiques par plages d'enneigement
+                - top_periods: Top 5 des périodes avec le plus de collisions
+                
+        Example usage:
+            query = WeatherCorrelationQuery()
+            result = query.execute(
+                start_date='2021-01-01',
+                end_date='2021-03-31',
+                frequency='week'
+            )
+            
+        Return format:
+            {
+                "summary": {
+                    "total_periods": 13,
+                    "total_collisions": 1250,
+                    "avg_collisions_per_period": 96.2
+                },
+                "correlations": [
+                    {
+                        "period_id": "2021-W01",
+                        "start_date": "2021-01-01",
+                        "end_date": "2021-01-07",
+                        "weather": {
+                            "mean_temp_c": -8.5,
+                            "min_temp_c": -15.2,
+                            "max_temp_c": -2.1,
+                            "total_precip_mm": 12.5,
+                            "total_snow_cm": 8.3
+                        },
+                        "collisions": {
+                            "total": 98,
+                            "deaths": 0,
+                            "severely_injured": 2,
+                            "lightly_injured": 15,
+                            "by_severity": {"Léger": 45, "Grave": 10, ...}
+                        }
+                    },
+                    ...
+                ],
+                "temperature_analysis": {
+                    "cold": {"periods": 5, "avg_collisions": 102.4},
+                    "mild": {"periods": 6, "avg_collisions": 95.1},
+                    "warm": {"periods": 2, "avg_collisions": 85.5}
+                },
+                "precipitation_analysis": {...},
+                "snow_analysis": {...},
+                "top_periods": [...]
+            }
+        """
+        from collections import defaultdict
+        
+        try:
+            # Import de l'API météo (doit être dans le même dossier)
+            from weather_api import MontrealWeatherAPI
+        except ImportError:
+            return {
+                "error": "MontrealWeatherAPI not found. Make sure weather_api.py is in the same directory."
+            }
+        
+        # 1. Récupérer les données météo historiques
+        weather_api = MontrealWeatherAPI()
+        weather_data = weather_api.get_historical_weather(
+            start_date=start_date,
+            end_date=end_date,
+            frequency=frequency
+        )
+        
+        if "error" in weather_data:
+            return {"error": f"Weather API error: {weather_data['error']}"}
+        
+        # 2. Récupérer les données de collisions
+        collision_query = CollisionHeatMapQuery(db_path=self.db_path)
+        collision_data = collision_query.execute(
+            time_range=f"{start_date} to {end_date}"
+        )
+        
+        # 3. Grouper les collisions par période météo
+        collisions_by_period = defaultdict(list)
+        for collision in collision_data.get("collisions", []):
+            date = collision["date"]
+            # Convertit YYYY/MM/DD en YYYY-MM-DD pour compatibilité
+            normalized_date = date.replace("/", "-")
+            
+            # Trouve la période correspondante
+            for period in weather_data["periods"]:
+                if period["start_date"] <= normalized_date <= period["end_date"]:
+                    collisions_by_period[period["period_id"]].append(collision)
+                    break
+        
+        # 4. Calculer les statistiques par période
+        correlations = []
+        
+        for period in weather_data["periods"]:
+            period_id = period["period_id"]
+            collisions = collisions_by_period[period_id]
+            
+            # Statistiques météo
+            mean_temp = period.get("mean_temp_c")
+            min_temp = period.get("min_temp_c")
+            max_temp = period.get("max_temp_c")
+            total_precip = period.get("total_precip", 0) or 0
+            total_snow = period.get("total_snow", 0) or 0
+            
+            # Statistiques collisions
+            n_collisions = len(collisions)
+            n_deaths = sum(c.get("deaths", 0) for c in collisions)
+            n_severe = sum(c.get("severely_injured", 0) for c in collisions)
+            n_light = sum(c.get("lightly_injured", 0) for c in collisions)
+            
+            # Classement par gravité
+            severity_counts = defaultdict(int)
+            for c in collisions:
+                severity = c.get("severity", "Non précisé")
+                severity_counts[severity] += 1
+            
+            correlations.append({
+                "period_id": period_id,
+                "start_date": period["start_date"],
+                "end_date": period["end_date"],
+                "weather": {
+                    "mean_temp_c": mean_temp,
+                    "min_temp_c": min_temp,
+                    "max_temp_c": max_temp,
+                    "total_precip_mm": total_precip,
+                    "total_snow_cm": total_snow,
+                },
+                "collisions": {
+                    "total": n_collisions,
+                    "deaths": n_deaths,
+                    "severely_injured": n_severe,
+                    "lightly_injured": n_light,
+                    "by_severity": dict(severity_counts),
+                }
+            })
+        
+        # 5. Analyser les tendances par température
+        cold_periods = [p for p in correlations if p["weather"]["mean_temp_c"] and p["weather"]["mean_temp_c"] < -10]
+        mild_periods = [p for p in correlations if p["weather"]["mean_temp_c"] and -10 <= p["weather"]["mean_temp_c"] <= 0]
+        warm_periods = [p for p in correlations if p["weather"]["mean_temp_c"] and p["weather"]["mean_temp_c"] > 0]
+        
+        temperature_analysis = {}
+        if cold_periods:
+            avg_cold = sum(p["collisions"]["total"] for p in cold_periods) / len(cold_periods)
+            temperature_analysis["cold"] = {
+                "threshold": "< -10°C",
+                "periods": len(cold_periods),
+                "avg_collisions": round(avg_cold, 1)
+            }
+        
+        if mild_periods:
+            avg_mild = sum(p["collisions"]["total"] for p in mild_periods) / len(mild_periods)
+            temperature_analysis["mild"] = {
+                "threshold": "-10°C to 0°C",
+                "periods": len(mild_periods),
+                "avg_collisions": round(avg_mild, 1)
+            }
+        
+        if warm_periods:
+            avg_warm = sum(p["collisions"]["total"] for p in warm_periods) / len(warm_periods)
+            temperature_analysis["warm"] = {
+                "threshold": "> 0°C",
+                "periods": len(warm_periods),
+                "avg_collisions": round(avg_warm, 1)
+            }
+        
+        # 6. Analyser les tendances par précipitations
+        dry_periods = [p for p in correlations if p["weather"]["total_precip_mm"] < 10]
+        wet_periods = [p for p in correlations if 10 <= p["weather"]["total_precip_mm"] < 50]
+        very_wet_periods = [p for p in correlations if p["weather"]["total_precip_mm"] >= 50]
+        
+        precipitation_analysis = {}
+        if dry_periods:
+            avg_dry = sum(p["collisions"]["total"] for p in dry_periods) / len(dry_periods)
+            precipitation_analysis["dry"] = {
+                "threshold": "< 10mm",
+                "periods": len(dry_periods),
+                "avg_collisions": round(avg_dry, 1)
+            }
+        
+        if wet_periods:
+            avg_wet = sum(p["collisions"]["total"] for p in wet_periods) / len(wet_periods)
+            precipitation_analysis["wet"] = {
+                "threshold": "10-50mm",
+                "periods": len(wet_periods),
+                "avg_collisions": round(avg_wet, 1)
+            }
+        
+        if very_wet_periods:
+            avg_very_wet = sum(p["collisions"]["total"] for p in very_wet_periods) / len(very_wet_periods)
+            precipitation_analysis["very_wet"] = {
+                "threshold": "> 50mm",
+                "periods": len(very_wet_periods),
+                "avg_collisions": round(avg_very_wet, 1)
+            }
+        
+        # 7. Analyser les tendances par neige
+        no_snow = [p for p in correlations if p["weather"]["total_snow_cm"] < 5]
+        some_snow = [p for p in correlations if 5 <= p["weather"]["total_snow_cm"] < 20]
+        heavy_snow = [p for p in correlations if p["weather"]["total_snow_cm"] >= 20]
+        
+        snow_analysis = {}
+        if no_snow:
+            avg_no_snow = sum(p["collisions"]["total"] for p in no_snow) / len(no_snow)
+            snow_analysis["no_snow"] = {
+                "threshold": "< 5cm",
+                "periods": len(no_snow),
+                "avg_collisions": round(avg_no_snow, 1)
+            }
+        
+        if some_snow:
+            avg_some_snow = sum(p["collisions"]["total"] for p in some_snow) / len(some_snow)
+            snow_analysis["some_snow"] = {
+                "threshold": "5-20cm",
+                "periods": len(some_snow),
+                "avg_collisions": round(avg_some_snow, 1)
+            }
+        
+        if heavy_snow:
+            avg_heavy_snow = sum(p["collisions"]["total"] for p in heavy_snow) / len(heavy_snow)
+            snow_analysis["heavy_snow"] = {
+                "threshold": "> 20cm",
+                "periods": len(heavy_snow),
+                "avg_collisions": round(avg_heavy_snow, 1)
+            }
+        
+        # 8. Top 5 des périodes avec le plus de collisions
+        top_periods = sorted(
+            correlations,
+            key=lambda x: x["collisions"]["total"],
+            reverse=True
+        )[:5]
+        
+        # 9. Retourner le résultat structuré
+        total_collisions_count = sum(p["collisions"]["total"] for p in correlations)
+        
+        return {
+            "summary": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "frequency": frequency,
+                "total_periods": len(correlations),
+                "total_collisions": total_collisions_count,
+                "avg_collisions_per_period": round(total_collisions_count / len(correlations), 1) if correlations else 0,
+            },
+            "correlations": correlations,
+            "temperature_analysis": temperature_analysis,
+            "precipitation_analysis": precipitation_analysis,
+            "snow_analysis": snow_analysis,
+            "top_periods": top_periods,
+        }
+
 class STMBottleneckQuery(DashboardQuery):
     def execute(self, **kwargs) -> Dict:
         # Placeholder for STM bottleneck query implementation
         return {"message": "STM bottleneck query not implemented yet."}
 
 class CollisionHeatMapQuery(DashboardQuery):
-    def __init__(self, db_path = "./db/mobility.db"):
+    def __init__(self, db_path = DEFAULT_DB_PATH):
         super().__init__(db_path)
         self.severity_mapping = {
             0: "Dommages matériels inférieurs au seuil de rapportage",
@@ -259,15 +534,38 @@ class CollisionHeatMapQuery(DashboardQuery):
 if __name__ == "__main__":
     # Test WordCloudQuery311
     print("=== WordCloudQuery311 ===")
-    query = WordCloudQuery311(db_path="data/db/mobility.db")
+    query = WordCloudQuery311(db_path="db/mobility.db")
     result = query.execute(top_n=10, time_range='last_month')
     print(json.dumps(result, indent=2, ensure_ascii=False))
     
     # Test CollisionHeatMapQuery
     print("\n=== CollisionHeatMapQuery ===")
-    query2 = CollisionHeatMapQuery(db_path="data/db/mobility.db")
+    query2 = CollisionHeatMapQuery(db_path="db/mobility.db")
     result2 = query2.execute(time_range='2023-01-01 to 2023-12-31', severity_filter=4)
     print(f"Total collisions mortelles en 2023: {result2['total_count']}")
     if result2['collisions']:
         print("Premier exemple:")
         print(json.dumps(result2['collisions'][0], indent=2, ensure_ascii=False))
+    
+    # Test WeatherCorrelationQuery
+    print("\n=== WeatherCorrelationQuery ===")
+    query3 = WeatherCorrelationQuery(db_path="db/mobility.db")
+    result3 = query3.execute(
+        start_date='2021-01-01',
+        end_date='2021-01-31',
+        frequency='week'
+    )
+    if 'error' in result3:
+        print(f"Erreur: {result3['error']}")
+    else:
+        print(f"Périodes analysées: {result3['summary']['total_periods']}")
+        print(f"Total collisions: {result3['summary']['total_collisions']}")
+        print(f"Moyenne par période: {result3['summary']['avg_collisions_per_period']}")
+        print("\nAnalyse température:")
+        for key, data in result3.get('temperature_analysis', {}).items():
+            print(f"  {key}: {data['periods']} périodes, moy {data['avg_collisions']} collisions ({data['threshold']})")
+        if result3['top_periods']:
+            print("\nTop période:")
+            top = result3['top_periods'][0]
+            print(f"  {top['period_id']}: {top['collisions']['total']} collisions")
+            print(f"  Température moyenne: {top['weather']['mean_temp_c']:.1f}°C")
