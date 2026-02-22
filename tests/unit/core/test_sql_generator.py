@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 from types import SimpleNamespace
+from typing import Any, Sequence
 
 import pytest
 
@@ -109,10 +110,12 @@ def test_sql_generator_node_parses_and_sanitizes_llm_output(
     monkeypatch: pytest.MonkeyPatch, sql_generator_module
 ) -> None:
     class FakeLLM:
-        def bind_tools(self, _tools):
+        tool_calls = []
+
+        def bind_tools(self, _tools: Sequence[Any]):
             return self
 
-        def invoke(self, _prompt: str):
+        def invoke(self, _prompt: Sequence[Any]):
             return SimpleNamespace(content="<sql>```sql\nSELECT * FROM trips;\n```</sql>", tool_calls=[])
 
     monkeypatch.setattr(sql_generator_module, "get_llm", lambda: FakeLLM())
@@ -140,10 +143,12 @@ def test_sql_generator_node_rejects_unsafe_llm_output(
     monkeypatch: pytest.MonkeyPatch, sql_generator_module
 ) -> None:
     class FakeLLM:
-        def bind_tools(self, _tools):
+        tool_calls = []
+
+        def bind_tools(self, _tools: Sequence[Any]):
             return self
 
-        def invoke(self, _prompt: str):
+        def invoke(self, _prompt: Sequence[Any]):
             return SimpleNamespace(content="```sql\nDELETE FROM trips\n```", tool_calls=[])
 
     monkeypatch.setattr(sql_generator_module, "get_llm", lambda: FakeLLM())
