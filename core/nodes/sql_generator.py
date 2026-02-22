@@ -1,9 +1,11 @@
 import re
 from typing import Dict, Optional
+from langchain_core.messages import SystemMessage
 
 from core.state import CopilotState
 from utils.llm_provider import get_llm
-
+from core.tools.tools_api_weather_now import geomet_mtl_weather_text_bundle
+from core.tools.tools_api_histo import geomet_mtl_history_global_tool
 
 _SQL_BLOCK_PATTERN = re.compile(r"```(?:sql)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _XML_TAG_PATTERN = re.compile(r"<\/?(?:sql|query|answer|response)[^>]*>", re.IGNORECASE)
@@ -33,32 +35,6 @@ _FORBIDDEN_SQL_KEYWORDS = {
 	"EXECUTE",
 	"CALL",
 }
-
-
-def _extract_latest_user_text(state: CopilotState) -> str:
-	messages = state.get("messages", [])
-	for message in reversed(messages):
-		message_type = getattr(message, "type", "")
-		if message_type != "human":
-			continue
-
-		content = getattr(message, "content", "")
-		if isinstance(content, str):
-			return content.strip()
-
-		if isinstance(content, list):
-			text_chunks = []
-			for chunk in content:
-				if isinstance(chunk, dict):
-					text_chunks.append(str(chunk.get("text", "")))
-				else:
-					text_chunks.append(str(chunk))
-			return "\n".join(text_chunks).strip()
-
-		return str(content).strip()
-
-	return ""
-
 
 def _strip_llm_wrappers(raw_text: str) -> str:
 	text = (raw_text or "").strip()
@@ -109,61 +85,46 @@ def _sanitize_sql_query(candidate: str) -> str:
 	return sql
 
 
-def _build_sql_prompt(
-	user_question: str,
-	audience: str,
-	retrieved_context: Optional[str],
-	previous_error: Optional[str],
-) -> str:
-	context_block = retrieved_context.strip() if retrieved_context else "No schema context provided."
-	error_block = previous_error.strip() if previous_error else "None"
-
-	return (
-		"You are an expert SQL generator for mobility analytics.\n"
-		"Generate exactly ONE safe, read-only SQL query answering the user question.\n"
-		"Rules:\n"
-		"1) Output SQL only (no markdown, no explanation, no tags).\n"
-		"2) Read-only query only: SELECT or WITH ... SELECT.\n"
-		"3) Never use DDL/DML/transaction keywords (INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, etc.).\n"
-		"4) Use only tables/columns from the schema context.\n"
-		"5) Keep the query valid and concise.\n\n"
-		f"Audience: {audience}\n"
-		f"Schema/Glossary context:\n{context_block}\n\n"
-		f"Previous execution error (if any): {error_block}\n\n"
-		f"User question: {user_question}\n"
-	)
-
-
 def sql_generator_node(state: CopilotState) -> CopilotState:
-	user_question = _extract_latest_user_text(state)
-	if not user_question:
-		return {
-			"generated_query": None,
-			"query_error": "No user question found to generate SQL.",
-		}
+	llm = get_llm()
 
-	prompt = _build_sql_prompt(
-		user_question=user_question,
-		audience=state.get("audience", "grand_public"),
-		retrieved_context=state.get("retrieved_context"),
-		previous_error=state.get("query_error"),
+	tools = [geomet_mtl_weather_text_bundle,geomet_mtl_history_global_tool]
+	llm_with_tools = llm.bind_tools(tools)
+
+	system_instruction = (
+		"You are the Data Agent for Montreal Mobility.\n"
+        "You have two ways to get information:\n"
+        "1) Use WEATHER TOOLS for current or historical weather requests.\n"
+        "2) Generate a SQL query (SELECT/WITH only) for traffic, 311, or collision data.\n"
+        "If you generate SQL, wrap it in ```sql blocks.\n"
+        f"Audience: {state.get('audience')}\n"
+        f"Context: {state.get('retrieved_context')}"
 	)
 
-	llm = get_llm()
-	llm_response = llm.invoke(prompt)
-	raw_content = getattr(llm_response, "content", llm_response)
-	raw_text = raw_content if isinstance(raw_content, str) else str(raw_content)
+	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + state.get("messages", []))
+
+	if response.tool_calls:
+		return {"generated_query": None, "messages": [response]}
+	
+	raw_text = response.content
 
 	try:
 		parsed_sql = _strip_llm_wrappers(raw_text)
+
+		if not parsed_sql:
+			return {"generated_query": None, "messages": [response]}
+		
 		safe_sql = _sanitize_sql_query(parsed_sql)
-	except ValueError as exc:
+		return {
+			"generated_query": safe_sql,
+			"messages": [response], 
+			"query_error": None
+			}
+	
+	except ValueError as ve:
+		error_message = str(ve)
 		return {
 			"generated_query": None,
-			"query_error": f"Unsafe or invalid SQL generated: {exc}",
+			"messages": [response],
+			"query_error": error_message
 		}
-
-	state["generated_query"] = safe_sql
-	state["query_error"] = None
-	return state
-
