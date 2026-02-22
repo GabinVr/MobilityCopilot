@@ -6,7 +6,8 @@ from core.nodes.user_interraction import user_interaction_node
 from core.nodes.synthesis import synthesis_node
 from core.nodes.contradictor import contradictor_node
 from core.nodes.rag import rag_node
-
+from core.tools.tools_api_weather_now import geomet_mtl_weather_text_bundle
+from core.tools.tools_api_histo import geomet_mtl_history_global_tool
 
 def route_after_ambiguity(state: CopilotState):
     if state.get("is_ambiguous"):
@@ -16,6 +17,11 @@ def route_after_ambiguity(state: CopilotState):
     return "proceed_sql_generation" 
 
 workflow = StateGraph(CopilotState)
+
+tools = [
+    geomet_mtl_weather_text_bundle,
+    geomet_mtl_history_global_tool,
+]
 
 workflow.add_node("retriever", rag_node)
 workflow.add_node("ambiguity_detector", ambiguity_node)
