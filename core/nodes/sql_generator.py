@@ -105,17 +105,23 @@ def sql_generator_node(state: CopilotState) -> CopilotState:
 			"query_error": "Configured LLM does not support tool binding (bind_tools).",
 		}
 
+	if not hasattr(llm, "tool_calls"):
+		return {
+			"generated_query": None,
+			"query_error": "Configured LLM does not support tool call tracking (tool_calls).",
+		}
+
 	tools = [geomet_mtl_weather_text_bundle,geomet_mtl_history_global_tool]
 	llm_with_tools = llm.bind_tools(tools)
 
 	system_instruction = (
 		"You are the Data Agent for Montreal Mobility.\n"
-        "You have two ways to get information:\n"
-        "1) Use WEATHER TOOLS for current or historical weather requests.\n"
-        "2) Generate a SQL query (SELECT/WITH only) for traffic, 311, or collision data.\n"
-        "If you generate SQL, wrap it in ```sql blocks.\n"
-        f"Audience: {state.get('audience')}\n"
-        f"Context: {state.get('retrieved_context')}"
+		"You have two ways to get information:\n"
+		"1) Use WEATHER TOOLS for current or historical weather requests.\n"
+		"2) Generate a SQL query (SELECT/WITH only) for traffic, 311, or collision data.\n"
+		"If you generate SQL, wrap it in ```sql blocks.\n"
+		f"Audience: {state.get('audience')}\n"
+		f"Context: {state.get('retrieved_context')}"
 	)
 
 	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + state.get("messages", []))
