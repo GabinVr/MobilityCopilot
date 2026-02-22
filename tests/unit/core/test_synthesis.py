@@ -1,6 +1,3 @@
-import importlib
-import sys
-import types
 from types import SimpleNamespace
 
 import pytest
@@ -17,40 +14,15 @@ class FakeSystemMessage:
         self.content = content
         self.type = "system"
 
-
-def _import_synthesis_module():
-    langgraph_pkg = sys.modules.setdefault("langgraph", types.ModuleType("langgraph"))
-    graph_pkg = sys.modules.setdefault("langgraph.graph", types.ModuleType("langgraph.graph"))
-    message_mod = sys.modules.setdefault(
-        "langgraph.graph.message", types.ModuleType("langgraph.graph.message")
-    )
-    setattr(message_mod, "add_messages", lambda messages: messages)
-    setattr(graph_pkg, "message", message_mod)
-    setattr(langgraph_pkg, "graph", graph_pkg)
-
-    langchain_core_pkg = sys.modules.setdefault(
-        "langchain_core", types.ModuleType("langchain_core")
-    )
-    lc_messages_mod = sys.modules.setdefault(
-        "langchain_core.messages", types.ModuleType("langchain_core.messages")
-    )
-    setattr(lc_messages_mod, "AnyMessage", object)
-    setattr(lc_messages_mod, "HumanMessage", FakeHumanMessage)
-    setattr(lc_messages_mod, "SystemMessage", FakeSystemMessage)
-    setattr(langchain_core_pkg, "messages", lc_messages_mod)
-
-    llm_provider_mod = sys.modules.setdefault(
-        "utils.llm_provider", types.ModuleType("utils.llm_provider")
-    )
-    setattr(llm_provider_mod, "get_llm", lambda: None)
-
-    module = importlib.import_module("core.nodes.synthesis")
-    return importlib.reload(module)
-
-
 @pytest.fixture
-def synthesis_module():
-    return _import_synthesis_module()
+def synthesis_module(core_node_importer):
+    return core_node_importer(
+        "core.nodes.synthesis",
+        message_symbols={
+            "HumanMessage": FakeHumanMessage,
+            "SystemMessage": FakeSystemMessage,
+        },
+    )
 
 
 def test_synthesis_node_builds_final_response(
@@ -69,7 +41,7 @@ def test_synthesis_node_builds_final_response(
 
     state = {
         "messages": [SimpleNamespace(type="human", content="Analyse les données")],
-        "audience": "grand_public",
+        "audience": "grand public",
         "retrieved_context": "Contexte RAG",
         "sql_results": "[('A', 10)]",
     }
