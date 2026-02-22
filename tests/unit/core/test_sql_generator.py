@@ -3,6 +3,7 @@ import sys
 import types
 from types import SimpleNamespace
 from typing import Any, Sequence
+from typing import Any, Sequence
 
 import pytest
 
@@ -25,12 +26,23 @@ def _import_sql_generator_module():
     )
     setattr(lc_messages_mod, "AnyMessage", object)
     setattr(lc_messages_mod, "SystemMessage", lambda content: SimpleNamespace(content=content))
+    setattr(lc_messages_mod, "SystemMessage", lambda content: SimpleNamespace(content=content))
     setattr(langchain_core_pkg, "messages", lc_messages_mod)
 
     llm_provider_mod = sys.modules.setdefault(
         "utils.llm_provider", types.ModuleType("utils.llm_provider")
     )
     setattr(llm_provider_mod, "get_llm", lambda: None)
+
+    weather_tools_mod = sys.modules.setdefault(
+        "core.tools.tools_api_weather_now", types.ModuleType("core.tools.tools_api_weather_now")
+    )
+    setattr(weather_tools_mod, "geomet_mtl_weather_text_bundle", object())
+
+    histo_tools_mod = sys.modules.setdefault(
+        "core.tools.tools_api_histo", types.ModuleType("core.tools.tools_api_histo")
+    )
+    setattr(histo_tools_mod, "geomet_mtl_history_global_tool", object())
 
     weather_tools_mod = sys.modules.setdefault(
         "core.tools.tools_api_weather_now", types.ModuleType("core.tools.tools_api_weather_now")
@@ -110,6 +122,8 @@ def test_sql_generator_node_parses_and_sanitizes_llm_output(
     monkeypatch: pytest.MonkeyPatch, sql_generator_module
 ) -> None:
     class FakeLLM:
+        tool_calls = []
+
         def bind_tools(self, _tools: Sequence[Any]):
             return self
 
@@ -141,6 +155,8 @@ def test_sql_generator_node_rejects_unsafe_llm_output(
     monkeypatch: pytest.MonkeyPatch, sql_generator_module
 ) -> None:
     class FakeLLM:
+        tool_calls = []
+
         def bind_tools(self, _tools: Sequence[Any]):
             return self
 

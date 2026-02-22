@@ -110,12 +110,12 @@ def sql_generator_node(state: CopilotState) -> CopilotState:
 
 	system_instruction = (
 		"You are the Data Agent for Montreal Mobility.\n"
-        "You have two ways to get information:\n"
-        "1) Use WEATHER TOOLS for current or historical weather requests.\n"
-        "2) Generate a SQL query (SELECT/WITH only) for traffic, 311, or collision data.\n"
-        "If you generate SQL, wrap it in ```sql blocks.\n"
-        f"Audience: {state.get('audience')}\n"
-        f"Context: {state.get('retrieved_context')}"
+		"You have two ways to get information:\n"
+		"1) Use WEATHER TOOLS for current or historical weather requests.\n"
+		"2) Generate a SQL query (SELECT/WITH only) for traffic, 311, or collision data.\n"
+		"If you generate SQL, wrap it in ```sql blocks.\n"
+		f"Audience: {state.get('audience')}\n"
+		f"Context: {state.get('retrieved_context')}"
 	)
 
 	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + messages)
