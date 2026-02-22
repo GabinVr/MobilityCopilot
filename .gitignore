@@ -5,6 +5,7 @@ __pycache__/
 
 # langgraphapi
 .langgraph_api/
+langgraph.json
 
 # C extensions
 *.so
@@ -84,6 +85,9 @@ target/
 # IPython
 profile_default/
 ipython_config.py
+
+# Data
+chroma_data/
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
