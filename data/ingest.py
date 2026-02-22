@@ -1,302 +1,470 @@
+"""
+Ingesteur de données - Implémentation propre et SOLID
+Respecte les principes:
+- Single Responsibility: chaque classe a une seule raison de changer
+- Open/Closed: ouvert à l'extension, fermé à la modification  
+- Liskov Substitution: DataLoader peut être étendu
+- Interface Segregation: interfaces minimales et spécifiques
+- Dependency Inversion: dépend des abstractions
+"""
+
 import os
+import sqlite3
 import pandas as pd
 import numpy as np
-import sqlite3
-import re
+from abc import ABC, abstractmethod
+from typing import Optional, Dict, List, Any, Tuple
+from pathlib import Path
+from dataclasses import dataclass
 
 
+# ============================================================================
+# TYPES & CONSTANTES
+# ============================================================================
 
-def ingest_collisions(CSV_PATH, DB_PATH, TABLE):
+@dataclass
+class LoadResult:
+    """Résultat du chargement d'un fichier"""
+    name: str
+    path: str
+    rows_before: int
+    rows_after: int
+    columns: int
 
-    # Nettoyage des données (CSV -> SQL)
-    # 1) On lit le CSV en texte pour garder les codes tels quels.
-    # 2) On transforme les "vides" ("" , espaces, "Non précisé", NA, etc.) en NULL.
-    # 3) On garde seulement les lignes avec NO_SEQ_COLL (sinon pas d’identifiant).
-    # 4) On convertit DT_ACCDN en date (YYYY-MM-DD).
-    # 5) On remplit AN et le jour de semaine à partir de DT_ACCDN quand c’est possible.
-    # 6) On convertit les compteurs (NB_*) en entiers et on met 0 si c’est vide.
-    # 7) Si GRAVITE est vide, on la déduit à partir des compteurs (morts/graves/légers).
-    # 8) On charge le résultat dans une table SQL (SQLite ici).
 
-    df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False)
+# ============================================================================
+# INTERFACES (SOLID principles)
+# ============================================================================
 
-    NULL_TOKENS = {"", " ", "NA", "N/A", "nan", "NaN", "None", "NULL", "Non précisé"}
-    def to_null(x):
-        if x is None: return None
-        if isinstance(x, float) and np.isnan(x): return None
-        s = str(x).strip()
-        return None if s in NULL_TOKENS else s
-
-    for c in df.columns:
-        df[c] = df[c].map(to_null)
-
-    df = df[df["NO_SEQ_COLL"].notna()].copy()
-
-    dt = pd.to_datetime(df["DT_ACCDN"], errors="coerce", format="%Y/%m/%d")
-    dt = dt.fillna(pd.to_datetime(df["DT_ACCDN"], errors="coerce"))
-    df["DT_ACCDN"] = dt.dt.strftime("%Y-%m-%d")
-
-    df["AN"] = pd.to_numeric(df["AN"], errors="coerce")
-    df.loc[df["AN"].isna() & dt.notna(), "AN"] = dt.dt.year
-    df["AN"] = df["AN"].astype("Int64")
-
-    for c in ["NB_MORTS","NB_BLESSES_GRAVES","NB_BLESSES_LEGERS"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype("Int64")
-
-    if "GRAVITE" in df.columns:
-        miss = df["GRAVITE"].isna()
-        df.loc[miss & (df["NB_MORTS"] > 0), "GRAVITE"] = "Mortel"
-        df.loc[miss & (df["NB_MORTS"] == 0) & (df["NB_BLESSES_GRAVES"] > 0), "GRAVITE"] = "Grave"
-        df.loc[miss & (df["NB_MORTS"] == 0) & (df["NB_BLESSES_GRAVES"] == 0) & (df["NB_BLESSES_LEGERS"] > 0), "GRAVITE"] = "Léger"
-        df.loc[miss & (df["NB_MORTS"] == 0) & (df["NB_BLESSES_GRAVES"] == 0) & (df["NB_BLESSES_LEGERS"] == 0), "GRAVITE"] = "Dommages matériels seulement"
-
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
-
-    cur.execute(f"DROP TABLE IF EXISTS {TABLE};")
-    cur.execute(f"""
-    CREATE TABLE {TABLE} (
-        NO_SEQ_COLL TEXT NOT NULL,
-        DT_ACCDN TEXT,
-        AN INTEGER,
-        JR_SEMN_ACCDN TEXT,
-        HEURE_ACCDN TEXT,
-        GRAVITE TEXT,
-        NB_MORTS INTEGER,
-        NB_BLESSES_GRAVES INTEGER,
-        NB_BLESSES_LEGERS INTEGER
-    );
-    """)
-    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{TABLE}_no_seq ON {TABLE}(NO_SEQ_COLL);")
-    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{TABLE}_dt ON {TABLE}(DT_ACCDN);")
-
-    wanted = [c for c in [
-        "NO_SEQ_COLL","DT_ACCDN","AN","JR_SEMN_ACCDN","HEURE_ACCDN","GRAVITE",
-        "NB_MORTS","NB_BLESSES_GRAVES","NB_BLESSES_LEGERS"
-    ] if c in df.columns]
-
-    df[wanted].to_sql(TABLE, con, if_exists="append", index=False)
-
-    con.commit()
-    con.close()
-
-    print("OK:", len(df), "lignes ->", DB_PATH, "table:", TABLE)
-
-def ingest_311(CSV_PATH, DB_PATH, TABLE):
-        # - Standardise les valeurs manquantes → NULL
-    # - Convertit DDS_DATE_CREATION et DATE_DERNIER_STATUT → datetime ISO (SQL-friendly)
-    # - Valide NATURE (Information / Commentaire / Requête / Plainte) ; sinon → NULL
-    # - Valide DERNIER_STATUT selon la liste autorisée ; sinon → NULL
-    # - Applique la règle ID_UNIQUE :
-    #   - autorisé NULL si NATURE == "Information"
-    #   - sinon, si ID_UNIQUE est NULL → ligne supprimée
-    # - Convertit toutes les colonnes PROVENANCE_* en entiers ; vides → 0
-    # - Nettoie/valide LIN_CODE_POSTAL (format canadien) ; invalide → NULL
-    # - Convertit LOC_X/LOC_Y/LOC_LAT/LOC_LONG en numériques ; invalide → NULL
-    # - Force LOC_ERREUR_GDT ∈ {0,1} ; sinon → NULL
-    # - Déduplique sur ID_UNIQUE en gardant l’enregistrement le plus récent
-    #   (DATE_DERNIER_STATUT sinon DDS_DATE_CREATION)
-    # - Crée/alimente une table SQLite + index (ID_UNIQUE, ARRONDISSEMENT, DDS_DATE_CREATION)
+class DataLoader(ABC):
+    """Interface pour charger des données depuis une source"""
     
-    # Définition des constantes de validation
-    NATURE_OK = {"Information", "Commentaire", "Requête", "Plainte"}
-    STATUT_OK = {
-        "Acceptée", "Annulée", "Prise en charge", "Réactivée", "Refusée",
-        "Supprimée", "Terminée", "Transmise pour traitement", "Urgente"
-    }
-    NULL_TOKENS = ["", " ", "NA", "N/A", "nan", "NaN", "None", "NULL", "Non précisé", "non précisé"]
+    @abstractmethod
+    def load(self, path: str) -> Tuple[str, pd.DataFrame]:
+        """Charge les données et retourne (nom_table, dataframe)"""
+        pass
 
-    # 1. Chargement intelligent : on gère les NULL dès le début
-    # na_values dit à Pandas quoi transformer en NaN
-    # keep_default_na=False évite que Pandas n'interprète des codes (ex: "NA" pour Namibie) par erreur
-    df = pd.read_csv(
-        CSV_PATH, 
-        dtype=str, 
-        low_memory=False, 
-        na_values=NULL_TOKENS, 
-        keep_default_na=False
-    )
 
-    # 2. Nettoyage global des espaces (Strip) sur toutes les colonnes de texte
-    # On le fait d'un coup sur tout le DataFrame pour les colonnes 'object'
-    df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-
-    # 3. Gestion des dates
-    DATE_COLS = ["DDS_DATE_CREATION", "DATE_DERNIER_STATUT"]
-    for c in DATE_COLS:
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
-
-    # 4. Validations (Plus besoin de strip ici, c'est déjà fait !)
-    if "NATURE" in df.columns:
-        df.loc[~df["NATURE"].isin(NATURE_OK), "NATURE"] = None
-
-    if "DERNIER_STATUT" in df.columns:
-        df.loc[~df["DERNIER_STATUT"].isin(STATUT_OK), "DERNIER_STATUT"] = None
-
-    if "ID_UNIQUE" in df.columns:
-        if "NATURE" in df.columns:
-            # Règle : Supprimer si ID est NULL sauf si c'est une "Information"
-            bad_id = df["ID_UNIQUE"].isna() & (df["NATURE"] != "Information")
-            df = df.loc[~bad_id].copy()
-
-    # 5. Conversion numérique pour les compteurs et les coordonnées
-    PROV_COLS = [
-        "PROVENANCE_TELEPHONE","PROVENANCE_COURRIEL","PROVENANCE_PERSONNE","PROVENANCE_COURRIER",
-        "PROVENANCE_TELECOPIEUR","PROVENANCE_INSTANCE","PROVENANCE_MOBILE","PROVENANCE_MEDIASOCIAUX",
-        "PROVENANCE_SITEINTERNET"
-    ]
-    for c in PROV_COLS:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype("Int64")
-
-    for c in ["LOC_X", "LOC_Y", "LOC_LAT", "LOC_LONG", "LOC_ERREUR_GDT"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
-    # 6. Déduplication (sur ID_UNIQUE seulement s'il n'est pas NULL)
-    if "ID_UNIQUE" in df.columns:
-        # On crée une clé de tri temporelle
-        t_sort = pd.to_datetime(df["DATE_DERNIER_STATUT"].fillna(df["DDS_DATE_CREATION"]), errors='coerce')
-        df['_t'] = t_sort
-        
-        # On sépare pour ne pas dédupliquer les IDs NULL (autorisés pour Information)
-        mask_null_id = df["ID_UNIQUE"].isna()
-        df_valid = df[~mask_null_id].sort_values("_t", ascending=True).drop_duplicates("ID_UNIQUE", keep="last")
-        df = pd.concat([df_valid, df[mask_null_id]], ignore_index=True).drop(columns=['_t'])
-
-    # 7. Insertion SQL
-    con = sqlite3.connect(DB_PATH)
-    # ... (ton code de création de table et d'index reste le même)
+class DataCleaner(ABC):
+    """Interface pour nettoyer des données"""
     
-    # Sélection des colonnes voulues (celles présentes dans le CSV)
-    wanted_cols = [col for col in [
-        "ID_UNIQUE","NATURE","ACTI_NOM","TYPE_LIEU_INTERV","ARRONDISSEMENT","ARRONDISSEMENT_GEO",
-        "UNITE_RESP_PARENT","DDS_DATE_CREATION","PROVENANCE_ORIGINALE", *PROV_COLS,
-        "RUE","RUE_INTERSECTION1","RUE_INTERSECTION2","LIN_CODE_POSTAL",
-        "LOC_X","LOC_Y","LOC_LAT","LOC_LONG","LOC_ERREUR_GDT",
-        "DERNIER_STATUT","DATE_DERNIER_STATUT"
-    ] if col in df.columns]
+    @abstractmethod
+    def clean(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Nettoie le dataframe"""
+        pass
 
-    df[wanted_cols].to_sql(TABLE, con, if_exists="replace", index=False)
-    con.close()
-    print(f"OK: {len(df)} lignes chargées dans {DB_PATH}")
 
-def ingest_gtfs(DATA_DIR, DB_PATH):
+class DatabaseWriter(ABC):
+    """Interface pour écrire dans une base de données"""
+    
+    @abstractmethod
+    def write(self, table_name: str, df: pd.DataFrame) -> None:
+        """Écrit le dataframe dans la base de données"""
+        pass
 
-    NULL_TOKENS = {"", " ", "NA", "N/A", "nan", "NaN", "None", "NULL", "null"}
 
-    RULES = {
-        "routes":        {"int": ["route_type"]},
-        "stops":         {"int": ["location_type","wheelchair_boarding"], "float": ["stop_lat","stop_lon"]},
-        "trips":         {"int": ["direction_id","wheelchair_accessible"]},
-        "stop_times":    {"int": ["stop_sequence","pickup_type","drop_off_type","timepoint","continuous_pickup","continuous_drop_off"]},
-        "calendar":      {"int": ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"], "date": ["start_date","end_date"]},
-        "calendar_dates":{"int": ["exception_type"], "date": ["date"]},
-        "shapes":        {"int": ["shape_pt_sequence"], "float": ["shape_pt_lat","shape_pt_lon"]},
-        "feed_info":     {"date": ["feed_start_date","feed_end_date"]},
-    }
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+# ============================================================================
+# IMPLEMENTATIONS - LOADERS
+# ============================================================================
 
-    # ordre "logique" (si absent, ignoré)
-    preferred = ["feed_info","agency","routes","stops","calendar","calendar_dates","shapes","trips","stop_times","translations"]
-
-    # discover all txt
-    all_txt = {os.path.splitext(fn)[0]: os.path.join(DATA_DIR, fn)
-               for fn in os.listdir(DATA_DIR) if fn.lower().endswith(".txt")}
-
-    order = [t for t in preferred if t in all_txt] + [t for t in all_txt if t not in preferred]
-
-    for table in order:
-        path = all_txt[table]
+class CSVLoader(DataLoader):
+    """Charge les fichiers CSV"""
+    
+    def load(self, path: str) -> Tuple[str, pd.DataFrame]:
+        table_name = Path(path).stem
         df = pd.read_csv(path, dtype=str, low_memory=False)
+        return table_name, df
 
-        # NULL + trim
-        for c in df.columns:
-            df[c] = df[c].apply(lambda x: None if x is None or (isinstance(x, float) and np.isnan(x))
-                                else (None if str(x).strip() in NULL_TOKENS else str(x).strip()))
 
-        # dates YYYYMMDD -> YYYY-MM-DD
-        if table in RULES and "date" in RULES[table]:
-            for c in RULES[table]["date"]:
-                if c in df.columns:
-                    df[c] = df[c].apply(lambda s: (f"{s[:4]}-{s[4:6]}-{s[6:]}"
-                                                   if isinstance(s, str) and len(s)==8 and s.isdigit()
-                                                   else None))
+class TXTLoader(DataLoader):
+    """Charge les fichiers TXT (format GTFS)"""
+    
+    def load(self, path: str) -> Tuple[str, pd.DataFrame]:
+        table_name = Path(path).stem
+        df = pd.read_csv(path, dtype=str, low_memory=False)
+        return table_name, df
 
-        # ints
-        if table in RULES and "int" in RULES[table]:
-            for c in RULES[table]["int"]:
-                if c in df.columns:
-                    df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
 
-        # floats
-        if table in RULES and "float" in RULES[table]:
-            for c in RULES[table]["float"]:
-                if c in df.columns:
-                    df[c] = pd.to_numeric(df[c], errors="coerce")
+class DataLoaderFactory:
+    """Factory pour créer les loaders appropriés"""
+    
+    _loaders: Dict[str, DataLoader] = {
+        '.csv': CSVLoader(),
+        '.txt': TXTLoader(),
+    }
+    
+    @classmethod
+    def get_loader(cls, file_path: str) -> Optional[DataLoader]:
+        ext = Path(file_path).suffix.lower()
+        return cls._loaders.get(ext)
 
-        # CREATE TABLE simple (types via dtype)
-        cur.execute(f'DROP TABLE IF EXISTS "{table}";')
-        cols_sql = []
-        for c in df.columns:
-            if pd.api.types.is_integer_dtype(df[c].dtype):
-                t = "INTEGER"
-            elif pd.api.types.is_float_dtype(df[c].dtype):
-                t = "REAL"
-            else:
-                t = "TEXT"
-            cols_sql.append(f'"{c}" {t}')
-        cur.execute(f'CREATE TABLE "{table}" ({", ".join(cols_sql)});')
 
-        df.to_sql(table, con, if_exists="append", index=False)
-        print(f"{table}: {len(df)} lignes")
+# ============================================================================
+# IMPLEMENTATIONS - CLEANER (Soft cleaning)
+# ============================================================================
 
-    con.commit()
-    con.close()
-    print("OK ->", DB_PATH)
+class SoftDataCleaner(DataCleaner):
+    """Nettoyage minimal et doux des données"""
+    
+    # Tokens considérés comme "vides"
+    EMPTY_TOKENS = {"", " ", "NA", "N/A", "nan", "NaN", "None", "NULL", 
+                    "null", "Non précisé", "non précisé"}
+    
+    # Règles de conversion par table
+    CONVERSION_RULES: Dict[str, Dict[str, List[str]]] = {
+        "collisions": {
+            "int": ["NO_CIVIQ_ACCDN", "NB_METRE_DIST_ACCD", "NB_VEH_IMPLIQUES_ACCDN",
+                   "NB_MORTS", "NB_BLESSES_GRAVES", "NB_BLESSES_LEGERS", "AN", "NB_VICTIMES_TOTAL",
+                   "NB_DECES_PIETON", "NB_BLESSES_PIETON", "NB_VICTIMES_PIETON",
+                   "NB_DECES_MOTO", "NB_BLESSES_MOTO", "NB_VICTIMES_MOTO",
+                   "NB_DECES_VELO", "NB_BLESSES_VELO", "NB_VICTIMES_VELO",
+                   "VITESSE_AUTOR", "nb_automobile_camion_leger", "nb_camionLourd_tractRoutier",
+                   "nb_outil_equipement", "nb_tous_autobus_minibus", "nb_bicyclette",
+                   "nb_cyclomoteur", "nb_motocyclette", "nb_taxi", "nb_urgence",
+                   "nb_motoneige", "nb_VHR", "nb_autres_types", "nb_veh_non_precise"],
+            "float": ["LOC_X", "LOC_Y", "LOC_LONG", "LOC_LAT"],
+            "date": ["DT_ACCDN"],
+        },
+        "demandes": {
+            "int": ["PROVENANCE_TELEPHONE", "PROVENANCE_COURRIEL", "PROVENANCE_PERSONNE",
+                   "PROVENANCE_COURRIER", "PROVENANCE_TELECOPIEUR", "PROVENANCE_INSTANCE",
+                   "PROVENANCE_MOBILE", "PROVENANCE_MEDIASOCIAUX", "PROVENANCE_SITEINTERNET",
+                   "LOC_ERREUR_GDT"],
+            "float": ["LOC_LONG", "LOC_LAT", "LOC_X", "LOC_Y"],
+            "datetime": ["DDS_DATE_CREATION", "DATE_DERNIER_STATUT"],
+        },
+        # Tables GTFS
+        "routes": {
+            "int": ["route_type"],
+        },
+        "stops": {
+            "int": ["location_type", "wheelchair_boarding"],
+            "float": ["stop_lat", "stop_lon"],
+        },
+        "trips": {
+            "int": ["direction_id", "wheelchair_accessible"],
+        },
+        "stop_times": {
+            "int": ["stop_sequence", "pickup_type", "drop_off_type", "timepoint",
+                   "continuous_pickup", "continuous_drop_off"],
+        },
+        "calendar": {
+            "int": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+            "date": ["start_date", "end_date"],
+        },
+        "calendar_dates": {
+            "int": ["exception_type"],
+            "date": ["date"],
+        },
+        "shapes": {
+            "int": ["shape_pt_sequence"],
+            "float": ["shape_pt_lat", "shape_pt_lon"],
+        },
+        "feed_info": {
+            "date": ["feed_start_date", "feed_end_date"],
+        },
+    }
+    
+    def clean(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Nettoyage en deux phases: nullification et conversion de type"""
+        
+        # Phase 1: Nettoyage des valeurs vides (minimal)
+        df = self._nullify_empty_values(df)
+        
+        # Phase 2: Conversion de type selon la table
+        df = self._convert_types(df, table_name)
+        
+        # Phase 3: Règles métier spécifiques par table
+        df = self._apply_business_rules(df, table_name)
+        
+        return df
+    
+    def _nullify_empty_values(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convertit les valeurs "vides" en None, avec strip des espaces"""
+        for col in df.columns:
+            if df[col].dtype == "object":
+                df[col] = df[col].apply(lambda x: self._clean_value(x))
+        return df
+    
+    def _clean_value(self, x: Any) -> Any:
+        """Nettoie une valeur unique"""
+        if pd.isna(x):
+            return None
+        if isinstance(x, float) and np.isnan(x):
+            return None
+        s = str(x).strip()
+        return None if s in self.EMPTY_TOKENS else s
+    
+    def _convert_types(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Convertit les types selon les règles de la table"""
+        
+        rules = self.CONVERSION_RULES.get(table_name, {})
+        
+        # Conversion en entiers
+        for col in rules.get("int", []):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+                # Garder NaN au lieu de les convertir en 0 (c'est plus doux)
+        
+        # Conversion en floats
+        for col in rules.get("float", []):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        
+        # Conversion en dates (format YYYY-MM-DD)
+        for col in rules.get("date", []):
+            if col in df.columns:
+                df[col] = self._parse_date(df[col])
+        
+        # Conversion en datetime (format ISO)
+        for col in rules.get("datetime", []):
+            if col in df.columns:
+                df[col] = self._parse_datetime(df[col])
+        
+        return df
+    
+    def _parse_date(self, series: pd.Series) -> pd.Series:
+        """Parse une date dans multiple formats et retourne YYYY-MM-DD"""
+        formats = ["%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%Y%m%d"]
+        result = pd.Series([None] * len(series), dtype=object)
+        
+        for fmt in formats:
+            mask = result.isna() & series.notna()
+            if mask.any():
+                try:
+                    parsed = pd.to_datetime(series[mask], format=fmt, errors="coerce")
+                    result[mask] = parsed.dt.strftime("%Y-%m-%d")
+                except:
+                    pass
+        
+        return result
+    
+    def _parse_datetime(self, series: pd.Series) -> pd.Series:
+        """Parse un datetime et retourne format ISO"""
+        result = pd.to_datetime(series, errors="coerce")
+        return result.dt.strftime("%Y-%m-%d %H:%M:%S")
+    
+    def _apply_business_rules(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Applique des règles métier spécifiques à chaque table"""
+        
+        if table_name == "demandes":
+            df = self._apply_311_rules(df)
+        
+        return df
+    
+    def _apply_311_rules(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Règles spécifiques pour la table 311"""
+        
+        # Valider NATURE si la colonne existe
+        if "NATURE" in df.columns:
+            nature_ok = {"Information", "Commentaire", "Requête", "Plainte"}
+            mask = df["NATURE"].notna() & ~df["NATURE"].isin(nature_ok)
+            df.loc[mask, "NATURE"] = None
+        
+        # Valider DERNIER_STATUT si la colonne existe
+        if "DERNIER_STATUT" in df.columns:
+            statut_ok = {"Acceptée", "Annulée", "Prise en charge", "Réactivée", "Refusée",
+                        "Supprimée", "Terminée", "Transmise pour traitement", "Urgente"}
+            mask = df["DERNIER_STATUT"].notna() & ~df["DERNIER_STATUT"].isin(statut_ok)
+            df.loc[mask, "DERNIER_STATUT"] = None
+        
+        # NE PAS supprimer les lignes avec ID_UNIQUE NULL (règle trop restrictive!)
+        # Garder toutes les données, c'est plus doux
+        
+        return df
+
+
+# ============================================================================
+# IMPLEMENTATIONS - DATABASE WRITER
+# ============================================================================
+
+class SQLiteDatabaseWriter(DatabaseWriter):
+    """Écrit les données dans une base SQLite"""
+    
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+        self.conn = None
+    
+    def __enter__(self):
+        self.conn = sqlite3.connect(self.db_path)
+        return self
+    
+    def __exit__(self, *args):
+        if self.conn:
+            self.conn.close()
+    
+    def write(self, table_name: str, df: pd.DataFrame) -> None:
+        """Écrit le dataframe dans la base"""
+        if self.conn is None:
+            raise RuntimeError("DatabaseWriter not opened with context manager")
+        
+        # Créer la table avec les types appropriés
+        self._create_table(table_name, df)
+        
+        # Insérer les données
+        df.to_sql(table_name, self.conn, if_exists="append", index=False)
+        self.conn.commit()
+    
+    def _create_table(self, table_name: str, df: pd.DataFrame) -> None:
+        """Crée la table avec les types de colonnes appropriés"""
+        cursor = self.conn.cursor()
+        
+        # Supprimer la table si elle existe
+        cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+        
+        # Construire les colonnes SQL
+        columns = []
+        for col in df.columns:
+            dtype = "INTEGER" if pd.api.types.is_integer_dtype(df[col].dtype) else \
+                    "REAL" if pd.api.types.is_float_dtype(df[col].dtype) else \
+                    "TEXT"
+            columns.append(f'"{col}" {dtype}')
+        
+        # Créer la table
+        create_sql = f'CREATE TABLE "{table_name}" ({", ".join(columns)})'
+        cursor.execute(create_sql)
+        
+        # Créer les index sur les colonnes clés
+        self._create_indices(table_name, df.columns)
+        
+        self.conn.commit()
+    
+    def _create_indices(self, table_name: str, columns: List[str]) -> None:
+        """Crée les index sur les colonnes utiles"""
+        cursor = self.conn.cursor()
+        
+        # Index sur les colonnes d'ID ou de date
+        index_candidates = [
+            "NO_SEQ_COLL", "ID_UNIQUE", "DT_ACCDN", "DDS_DATE_CREATION",
+            "DATE_DERNIER_STATUT", "ARRONDISSEMENT", "AN"
+        ]
+        
+        for col in index_candidates:
+            if col in columns:
+                index_name = f"idx_{table_name}_{col.lower()}"
+                try:
+                    cursor.execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}"("{col}")')
+                except sqlite3.OperationalError:
+                    pass  # Index peut déjà exister
+        
+        self.conn.commit()
+
+
+# ============================================================================
+# ORCHESTRATOR
+# ============================================================================
+
+class DataIngestionService:
+    """Service principal d'ingestion de données"""
+    
+    def __init__(self, loader_factory: DataLoaderFactory, cleaner: DataCleaner, 
+                 writer: DatabaseWriter):
+        self.loader_factory = loader_factory
+        self.cleaner = cleaner
+        self.writer = writer
+        self.results: List[LoadResult] = []
+    
+    def ingest_directory(self, source_dir: str) -> List[LoadResult]:
+        """Ingère tous les fichiers CSV et TXT d'un répertoire"""
+        
+        for file_path in Path(source_dir).glob("**/*"):
+            if not file_path.is_file():
+                continue
+            
+            loader = self.loader_factory.get_loader(str(file_path))
+            if not loader:
+                continue
+            
+            try:
+                print(f"  Chargement: {file_path.name}...", end=" ")
+                
+                # Charger
+                table_name, df = loader.load(str(file_path))
+                rows_before = len(df)
+                cols = len(df.columns)
+                
+                # Nettoyer
+                df = self.cleaner.clean(df, table_name)
+                
+                # Écrire
+                self.writer.write(table_name, df)
+                
+                result = LoadResult(
+                    name=table_name,
+                    path=str(file_path),
+                    rows_before=rows_before,
+                    rows_after=len(df),
+                    columns=cols
+                )
+                self.results.append(result)
+                
+                print(f"✓ {rows_before} lignes → {cols} colonnes")
+                
+            except Exception as e:
+                print(f"✗ Erreur: {type(e).__name__}: {str(e)[:80]}")
+    
+    def print_summary(self) -> None:
+        """Affiche un résumé de l'ingestion"""
+        print("\n" + "="*70)
+        print("RÉSUMÉ DE L'INGESTION")
+        print("="*70)
+        
+        total_rows = sum(r.rows_after for r in self.results)
+        total_tables = len(self.results)
+        
+        print(f"\nTableles créées: {total_tables}")
+        print(f"Lignes totales: {total_rows}")
+        print(f"\nDétails par table:")
+        print(f"  {'Table':<20} {'Lignes':<10} {'Colonnes':<10}")
+        print("-" * 40)
+        
+        for result in self.results:
+            print(f"  {result.name:<20} {result.rows_after:<10} {result.columns:<10}")
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main():
+    """Point d'entrée principal"""
+    
+    # Configuration
+    CSV_DIR = "data/csv"
+    DB_PATH = "data/db/mobility.db"
+    
+    print("="*70)
+    print("INGESTION DE DONNÉES - MobilityCopilot")
+    print("="*70)
+    
+    # Créer le répertoire de la base de données
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    
+    # Supprimer l'ancienne base si elle existe
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+        print(f"\nAncienne base supprimée: {DB_PATH}")
+    
+    # Initialiser le service
+    clean_dry = False  # Mode dry-run (test sans écrire)
+    
+    print(f"\nChargement depuis: {CSV_DIR}")
+    print(f"Cible: {DB_PATH}\n")
+    
+    with SQLiteDatabaseWriter(DB_PATH) as writer:
+        service = DataIngestionService(
+            loader_factory=DataLoaderFactory(),
+            cleaner=SoftDataCleaner(),
+            writer=writer
+        )
+        
+        service.ingest_directory(CSV_DIR)
+        service.print_summary()
+    
+    print(f"\n✓ Base de données créée: {DB_PATH}")
+    print("="*70)
 
 
 if __name__ == "__main__":
-
-    CSV_PATH_COLLISION = "data/csv/collisions_routieres.csv"
-    DB_PATH_COLLISION = "data/db/mobility.db"
-    TABLE_COLLISION = "collisions"
-
-
-    CSV_PATH_311 = "data/csv/requetes311.csv"
-    DB_PATH_311 = "data/db/mobility.db"
-    TABLE_311 = "demandes"
-
-    DATA_PATH_GTFS = "data/csv/gtfs_stm/"
-    DB_PATH_GTFS  = "data/db/mobility.db"
-
-    # 1. Création du dossier pour les bases de données (obligatoire pour SQLite)
-    # Si le dossier data/db n'existe pas, SQLite lèvera une erreur.
-    print("--- Préparation de l'environnement ---")
-    os.makedirs("data/db", exist_ok=True)
-
-    # 2. Lancement séquentiel des ingestions
-    print("\n[1/3] Ingestion des Collisions Routières...")
-    try:
-        ingest_collisions(CSV_PATH_COLLISION, DB_PATH_COLLISION, TABLE_COLLISION)
-    except Exception as e:
-        print(f"Erreur lors de l'ingestion des collisions : {e}")
-
-    print("\n[2/3] Ingestion des Requêtes 311...")
-    try:
-        ingest_311(CSV_PATH_311, DB_PATH_311, TABLE_311)
-    except Exception as e:
-        print(f"Erreur lors de l'ingestion du 311 : {e}")
-
-    print("\n[3/3] Ingestion des fichiers GTFS...")
-    try:
-        # Assure-toi que DATA_PATH_GTFS est bien "data/csv/gtfs_stm/"
-        ingest_gtfs(DATA_PATH_GTFS, DB_PATH_GTFS)
-    except Exception as e:
-        print(f"Erreur lors de l'ingestion GTFS : {e}")
-
-    print("\n--- Processus terminé. Vos bases .db sont prêtes dans data/db/ ---")
-
+    main()
