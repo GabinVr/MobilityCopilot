@@ -14,8 +14,11 @@ class CopilotState(TypedDict):
     # --- 2. Ambiguity Detection ---
     # To satisfy the requirement to detect fuzzy queries and act on them.
     is_ambiguous: bool
-    clarification_options: Optional[str] # The hypotheses proposed to the user
+    clarification_options: Optional[List[str]] # The hypotheses proposed to the user
     
+    # Whether the query requires database access (for routing decisions)
+    need_external_data: bool 
+
     # --- 3. RAG Grounding ---
     # Holds the glossary/dataset definitions retrieved to avoid hallucinations.
     retrieved_context: str
