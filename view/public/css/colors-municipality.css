@@ -1,0 +1,106 @@
+/* ============ MODE "MUNICIPALITÉ" - DARK & ANALYTICAL ============ */
+
+:root {
+  /* Primary Colors - Dark Slate (Mode sombre élégant) */
+  --bg-primary: #0F172A;
+  --bg-secondary: #1E293B;
+  --text-primary: #F1F5F9;
+  --text-secondary: #CBD5E1;
+  
+  /* Accent Colors - Teal/Sarcelle (look "Tableau de bord d'opérations") */
+  --accent-primary: #0D9488;
+  --accent-light: #CCFBF1;
+  --accent-hover: #0D7377;
+  
+  /* Border & Effects */
+  --border-color: #334155;
+  --shadow-light: rgba(0, 0, 0, 0.2);
+  --shadow-medium: rgba(0, 0, 0, 0.3);
+  --shadow-dark: rgba(0, 0, 0, 0.4);
+  
+  /* Data Visualization (Semiotics) - Same as public for consistency */
+  --color-danger: #EF4444;      /* Gravité élevée / Hotspots intenses - Rouge corail */
+  --color-warning: #F59E0B;     /* Avertissements / Signaux faibles - Ambre/Orange */
+  --color-success: #10B981;     /* Fluide / Normal - Vert émeraude */
+  --color-weather: #93C5FD;     /* Météo (Neige/Pluie) - Bleu glacier */
+}
+
+/* Smooth transitions for dark theme */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Additional brand colors for elements */
+.accent-bg {
+  background-color: rgba(13, 148, 136, 0.1);
+}
+
+.danger-text {
+  color: var(--color-danger);
+}
+
+.warning-text {
+  color: var(--color-warning);
+}
+
+.success-text {
+  color: var(--color-success);
+}
+
+/* Dark mode specific adjustments */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  background-color: #334155;
+  color: #F1F5F9;
+  border-color: #475569;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+select:focus {
+  border-color: #0D9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
+/* Dark theme card styling */
+.dashboard-card {
+  background: #334155;
+  border-color: #475569;
+}
+
+.dashboard-card:hover {
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Auth cards in dark mode */
+.auth-card {
+  background: #1E293B;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Chat styling */
+.chat-message.user .message-content {
+  background-color: #0D9488;
+  color: #F1F5F9;
+}
+
+.chat-message.ai .message-content {
+  background-color: #334155;
+  border-color: #475569;
+}
+
+/* Mode toggle visibility in dark */
+.mode-toggle {
+  background-color: #334155;
+  border-color: #475569;
+}
+
+.mode-toggle:hover {
+  background-color: rgba(13, 148, 136, 0.1);
+  border-color: #0D9488;
+}

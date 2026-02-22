@@ -1,0 +1,48 @@
+/* ============ MODE "GRAND PUBLIC" - LIGHT & FRIENDLY ============ */
+
+:root {
+  /* Primary Colors */
+  --bg-primary: #F8FAFC;
+  --bg-secondary: #FFFFFF;
+  --text-primary: #1E293B;
+  --text-secondary: #64748B;
+  
+  /* Accent Colors */
+  --accent-primary: #3B82F6;
+  --accent-light: #EFF6FF;
+  --accent-hover: #2563EB;
+  
+  /* Border & Effects */
+  --border-color: #E2E8F0;
+  --shadow-light: rgba(0, 0, 0, 0.04);
+  --shadow-medium: rgba(0, 0, 0, 0.08);
+  --shadow-dark: rgba(0, 0, 0, 0.12);
+  
+  /* Data Visualization (Semiotics) */
+  --color-danger: #EF4444;      /* Gravité élevée / Hotspots intenses - Rouge corail */
+  --color-warning: #F59E0B;     /* Avertissements / Signaux faibles - Ambre/Orange */
+  --color-success: #10B981;     /* Fluide / Normal - Vert émeraude */
+  --color-weather: #93C5FD;     /* Météo (Neige/Pluie) - Bleu glacier */
+}
+
+/* Smooth transitions for light theme */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Additional brand colors for elements */
+.accent-bg {
+  background-color: var(--accent-light);
+}
+
+.danger-text {
+  color: var(--color-danger);
+}
+
+.warning-text {
+  color: var(--color-warning);
+}
+
+.success-text {
+  color: var(--color-success);
+}
