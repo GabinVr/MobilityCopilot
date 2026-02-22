@@ -15,4 +15,6 @@ jobs:
           username: ${{secrets.DEPLOY_USERNAME}}
           key: ${{secrets.DEPLOY_SSH_KEY}}
           script: |
+            cd /home/${{secrets.DEPLOY_USERNAME}}/
+            git pull origin main
             echo 'Deployment to digital ocean finished'
