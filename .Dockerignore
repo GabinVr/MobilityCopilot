@@ -64,3 +64,5 @@ docs/
 tmp/
 temp/
 .gitkeep
+
+nginx/

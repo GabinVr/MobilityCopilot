@@ -1,0 +1,18 @@
+networks:
+  mobility:
+    external: true
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: mobility_nginx
+    networks:
+      - mobility
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./logs:/var/log/nginx
+    restart: unless-stopped
