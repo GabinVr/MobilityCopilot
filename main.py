@@ -73,10 +73,7 @@ async def lifespan(app: FastAPI):
 
     scheduler = BackgroundScheduler()
 
-    # Demo: Générer un briefing hebdomadaire tous les 2 minutes (pour les tests). En production, on peut le faire une fois par semaine.
-    scheduler.add_job(hebdo_hotspots_briefing_generator, 'interval', minutes=2)
-
-    # scheduler.add_job(hebdo_hotspots_briefing_endpoint, 'cron', day_of_week='mon', hour=8, minute=0)
+    scheduler.add_job(hebdo_hotspots_briefing_generator, 'cron', day_of_week='mon', hour=8, minute=0)
 
     scheduler.start()
 
@@ -144,7 +141,7 @@ class WeatherCorrelationResponse(BaseModel):
 class TrendRequest(BaseModel):
     as_of_date: Optional[str] = Field(
         default=None,
-        description="Date de référence au format YYYY-MM-DD (optionnel)."
+        description="Date d'analyse au format YYYY-MM-DD. Si absent, utilise la date max disponible.",
     )
 
 
@@ -163,11 +160,11 @@ class TrendResponse(BaseModel):
 
 def get_last_hotspot_report():
     """
-    Récupère le rapport d'analyse de hotspot le plus récent.
-    Retourne:
-        dict: Un objet JSON sérialisable contenant le dernier rapport de hotspot
-        sous la clé ``report``
+    Return the latest generated mobility hotspot report for Montreal. This report is updated by the hebdo_hotspots_briefing_generator function.
+    If no report has been generated yet, it will launch the generator to create the first report and return it.
     """
+    if DERNIER_HOTSPOT == "Aucun rapport généré pour le moment.":
+        hebdo_hotspots_briefing_generator()
     return {"report": DERNIER_HOTSPOT}
 
 @api.post("/chat", response_model=ChatResponse)
@@ -265,15 +262,14 @@ async def weather_correlation_endpoint(request: WeatherCorrelationRequest):
 
 @api.post("/dashboard/trends", response_model=TrendResponse)
 async def trends_endpoint(request: TrendRequest):
-    """
-    Générer un rapport de tendances de mobilité (collisions + 311).
-    """
+    """Générer un rapport de tendances mobilité (collisions + requêtes 311)."""
     try:
         query = TrendQuery()
-        result = query.build_trend_report(as_of_date=request.as_of_date)
+        result = query.execute(as_of_date=request.as_of_date)
         return TrendResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 

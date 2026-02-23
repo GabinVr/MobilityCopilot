@@ -25,8 +25,7 @@ def _direction_from_diff(diff: float) -> str:
 
 class TrendQuery(DashboardQuery):
     """
-    Isolated trend analyzer.
-    This file is standalone on purpose to avoid impacting existing flows.
+    Trend analyzer implementing the DashboardQuery interface.
     """
 
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
@@ -481,5 +480,5 @@ class TrendQuery(DashboardQuery):
 
 if __name__ == "__main__":
     query = TrendQuery()
-    report = query.build_trend_report()
+    report = query.execute()
     print(json.dumps(report, indent=2, ensure_ascii=False))

@@ -3,7 +3,7 @@ from langgraph.prebuilt import ToolNode
 
 from core.state import CopilotState
 from core.nodes.ambiguity_detector import ambiguity_node
-from core.nodes.sql_generator import sql_generator_node
+from core.nodes.data_agent import data_agent_node
 from core.nodes.user_interraction import user_interaction_node
 from core.nodes.synthesis import synthesis_node
 from core.nodes.contradictor import contradictor_node
@@ -24,7 +24,7 @@ def route_after_ambiguity(state: CopilotState):
         return "ask_user"
     
     if state.get("need_external_data"):
-        return "proceed_sql_generation" 
+        return "proceed_data_agent"
     
     return "bypass_to_synthesis"
     
@@ -45,7 +45,7 @@ def route_after_generator(state: CopilotState):
 
 def route_after_validator(state: CopilotState):
     if state.get("query_error"):
-        return "sql_generator"
+        return "data_agent"
     
     return "synthesis"
 
@@ -54,7 +54,7 @@ workflow = StateGraph(CopilotState)
 workflow.add_node("retriever", rag_node)
 workflow.add_node("ambiguity_detector", ambiguity_node)
 workflow.add_node("user_interaction", user_interaction_node)
-workflow.add_node("sql_generator", sql_generator_node)
+workflow.add_node("data_agent", data_agent_node)
 workflow.add_node("validator", execute_sql_node)
 workflow.add_node("weather_tools", tool_node)
 workflow.add_node("synthesis", synthesis_node)
@@ -67,11 +67,11 @@ workflow.add_edge("retriever", "ambiguity_detector")
 
 workflow.add_conditional_edges("ambiguity_detector", route_after_ambiguity, {
     "ask_user": "user_interaction",
-    "proceed_sql_generation": "sql_generator",
+    "proceed_data_agent": "data_agent",
     "bypass_to_synthesis": "synthesis"
 })
 
-workflow.add_conditional_edges("sql_generator", route_after_generator, {
+workflow.add_conditional_edges("data_agent", route_after_generator, {
     "call_tools": "weather_tools",
     "proceed_synthesis": "synthesis",
     "validate_query": "validator"
@@ -79,11 +79,11 @@ workflow.add_conditional_edges("sql_generator", route_after_generator, {
 
 
 workflow.add_conditional_edges("validator", route_after_validator, {
-    "sql_generator": "sql_generator",
+    "data_agent": "data_agent",
     "synthesis": "synthesis"
 })
 
-workflow.add_edge("weather_tools", "sql_generator")
+workflow.add_edge("weather_tools", "data_agent")
 workflow.add_edge("user_interaction", END)
 workflow.add_edge("synthesis", "contradictor")
 workflow.add_edge("contradictor", END)
