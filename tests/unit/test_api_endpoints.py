@@ -434,7 +434,7 @@ class TestTrendsEndpoint:
         with patch('main.TrendQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
-            mock_query.build_trend_report.return_value = mock_result
+            mock_query.execute.return_value = mock_result
 
             response = client.post("/dashboard/trends", json=payload)
 
@@ -442,7 +442,7 @@ class TestTrendsEndpoint:
             data = response.json()
             assert data["as_of_date"] == "2024-04-28"
             assert data["monthly_collisions"]["direction"] == "up"
-            mock_query.build_trend_report.assert_called_once_with(as_of_date="2024-04-28")
+            mock_query.execute.assert_called_once_with(as_of_date="2024-04-28")
 
     def test_trends_endpoint_value_error(self, client):
         payload = {
@@ -452,7 +452,7 @@ class TestTrendsEndpoint:
         with patch('main.TrendQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
-            mock_query.build_trend_report.side_effect = ValueError("Invalid as_of_date format")
+            mock_query.execute.side_effect = ValueError("Invalid as_of_date format")
 
             response = client.post("/dashboard/trends", json=payload)
 
@@ -466,7 +466,7 @@ class TestTrendsEndpoint:
         with patch('main.TrendQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
-            mock_query.build_trend_report.side_effect = Exception("Unexpected DB issue")
+            mock_query.execute.side_effect = Exception("Unexpected DB issue")
 
             response = client.post("/dashboard/trends", json=payload)
 

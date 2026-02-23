@@ -109,7 +109,7 @@ def trend_report(tmp_path):
     _seed_poc_database(str(db_path))
 
     query = TrendQuery(db_path=str(db_path))
-    return query.build_trend_report(as_of_date="2024-04-28")
+    return query.execute(as_of_date="2024-04-28")
 
 
 def test_report_structure_is_complete(trend_report):
