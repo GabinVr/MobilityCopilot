@@ -10,7 +10,9 @@ from main import (
     CollisionHeatMapRequest,
     CollisionHeatMapResponse,
     WeatherCorrelationRequest,
-    WeatherCorrelationResponse
+    WeatherCorrelationResponse,
+    TrendRequest,
+    TrendResponse
 )
 
 
@@ -387,3 +389,87 @@ class TestWeatherCorrelationEndpoint:
             response = client.post("/dashboard/weather-correlation", json=payload)
             
             assert response.status_code == 500
+
+
+class TestTrendsEndpoint:
+    """Tests pour l'endpoint /dashboard/trends."""
+
+    def test_trends_endpoint_success(self, client):
+        payload = {
+            "as_of_date": "2024-04-28"
+        }
+
+        mock_result = {
+            "generated_at": "2026-02-23T17:45:00Z",
+            "as_of_date": "2024-04-28",
+            "monthly_collisions": {
+                "current_period": "2024-04",
+                "previous_period": "2024-03",
+                "current_count": 120,
+                "previous_count": 110,
+                "diff": 10,
+                "pct_change": 9.1,
+                "direction": "up",
+                "series": []
+            },
+            "pedestrian_3m_vs_last_year": {
+                "direction": "up",
+                "pct_change": 18.0
+            },
+            "hourly_peak_shift": {
+                "shift_hours": -2,
+                "direction": "down"
+            },
+            "weekly_311_changes": {
+                "changes": []
+            },
+            "weak_signals_311": {
+                "signals": []
+            },
+            "insights": [
+                "Collisions en hausse sur le dernier mois."
+            ]
+        }
+
+        with patch('main.TrendQuery') as mock_query_class:
+            mock_query = MagicMock()
+            mock_query_class.return_value = mock_query
+            mock_query.execute.return_value = mock_result
+
+            response = client.post("/dashboard/trends", json=payload)
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["as_of_date"] == "2024-04-28"
+            assert data["monthly_collisions"]["direction"] == "up"
+            mock_query.execute.assert_called_once_with(as_of_date="2024-04-28")
+
+    def test_trends_endpoint_value_error(self, client):
+        payload = {
+            "as_of_date": "2024-99-99"
+        }
+
+        with patch('main.TrendQuery') as mock_query_class:
+            mock_query = MagicMock()
+            mock_query_class.return_value = mock_query
+            mock_query.execute.side_effect = ValueError("Invalid as_of_date format")
+
+            response = client.post("/dashboard/trends", json=payload)
+
+            assert response.status_code == 400
+            data = response.json()
+            assert "Invalid as_of_date format" in data["detail"]
+
+    def test_trends_endpoint_exception(self, client):
+        payload = {}
+
+        with patch('main.TrendQuery') as mock_query_class:
+            mock_query = MagicMock()
+            mock_query_class.return_value = mock_query
+            mock_query.execute.side_effect = Exception("Unexpected DB issue")
+
+            response = client.post("/dashboard/trends", json=payload)
+
+            assert response.status_code == 500
+            data = response.json()
+            assert "Unexpected DB issue" in data["detail"]
