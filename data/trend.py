@@ -427,7 +427,7 @@ class TrendQuery(DashboardQuery):
             "signals": signals[:top_n],
         }
 
-    def execute(self, as_of_date: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def build_trend_report(self, as_of_date: Optional[str] = None) -> Dict[str, Any]:
         collisions_df = self._load_collisions()
         requests_df = self._load_requests_311()
         as_of = self._resolve_as_of_date(collisions_df, requests_df, as_of_date=as_of_date)
