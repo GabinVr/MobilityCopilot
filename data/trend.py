@@ -1,16 +1,12 @@
 import json
-import os
 import re
-import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-LOCAL_DIR = Path(__file__).parent
-DEFAULT_DB_PATH = os.path.join(LOCAL_DIR, "db/mobility.db")
+from data.dashboard_queries import DashboardQuery, DEFAULT_DB_PATH
 
 
 def _safe_pct_change(current: float, previous: float) -> Optional[float]:
@@ -27,23 +23,21 @@ def _direction_from_diff(diff: float) -> str:
     return "stable"
 
 
-class TrendQuery:
+class TrendQuery(DashboardQuery):
     """
     Isolated trend analyzer.
     This file is standalone on purpose to avoid impacting existing flows.
     """
 
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
-        self.db_path = db_path
+        super().__init__(db_path=db_path)
         self.collisions_table = self._pick_table(["collisions_routieres", "collisions"])
         self.requests_table = self._pick_table(["requetes311", "demandes"])
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path)
-
     def _pick_table(self, candidates: List[str]) -> str:
-        with self._connect() as conn:
-            cur = conn.cursor()
+        self.connect()
+        try:
+            cur = self.conn.cursor()
             for table in candidates:
                 cur.execute(
                     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
@@ -51,11 +45,16 @@ class TrendQuery:
                 )
                 if cur.fetchone():
                     return table
+        finally:
+            self.disconnect()
         raise ValueError(f"No table found among: {', '.join(candidates)}")
 
     def _read_sql(self, query: str, params: Tuple[Any, ...] = ()) -> pd.DataFrame:
-        with self._connect() as conn:
-            return pd.read_sql_query(query, conn, params=params)
+        self.connect()
+        try:
+            return pd.read_sql_query(query, self.conn, params=params)
+        finally:
+            self.disconnect()
 
     @staticmethod
     def _normalize_date_series(series: pd.Series) -> pd.Series:
@@ -475,6 +474,9 @@ class TrendQuery:
             "weak_signals_311": weak_signals,
             "insights": insights,
         }
+
+    def execute(self, **kwargs) -> Dict[str, Any]:
+        return self.build_trend_report(as_of_date=kwargs.get("as_of_date"))
 
 
 if __name__ == "__main__":
