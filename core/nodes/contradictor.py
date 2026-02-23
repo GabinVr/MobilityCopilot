@@ -11,7 +11,7 @@ def contradictor_node(state: CopilotState) -> CopilotState:
         }
     
     final_answer = state.get("analytical_response")
-    sql_results = state.get("query_results", "No SQL results available.")
+    query_results = state.get("query_results", "No SQL results available.")
     rag_context = state.get("retrieved_context", "No context available.")
 
     system_prompt = """
@@ -33,7 +33,7 @@ def contradictor_node(state: CopilotState) -> CopilotState:
 
     prompt_context = f"""
     Final answer: {final_answer}
-    SQL results: {sql_results}
+    SQL results: {query_results}
     RAG context: {rag_context}
     Generate the contradictor report based on the above information and the system prompt.
     """

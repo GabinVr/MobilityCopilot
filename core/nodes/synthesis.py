@@ -7,7 +7,7 @@ def synthesis_node(state: CopilotState) -> CopilotState:
 
     audience = state.get("audience", "grand public")
     rag_context = state.get("retrieved_context", "No context available")
-    sql_results = state.get("sql_results", "No SQL results available")
+    query_results = state.get("query_results", "No SQL results available")
     messages = state.get("messages", [])
 
     chat_history_text = ""
@@ -23,7 +23,7 @@ def synthesis_node(state: CopilotState) -> CopilotState:
     You are the Synthesis Agent for the Montreal Mobility Copilot.
     Your task is to synthesize a final answer to the user's question based on the following information:
     1. RAG CONTEXT : {rag_context}
-    2. SQL RESULTS : {sql_results}
+    2. SQL RESULTS : {query_results}
     3. CONVERSATION HISTORY : {chat_history_text}
 
     INSTRUCTIONS:
