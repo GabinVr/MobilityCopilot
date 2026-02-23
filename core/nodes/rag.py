@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from core.state import CopilotState
 from rag.repository import get_repository
 
@@ -21,9 +23,11 @@ def rag_node(state: CopilotState) -> CopilotState:
 
     rag_context = "\n\n---\n\n".join(context_chunks)
 
+    today = datetime.now().strftime("%Y-%m-%d")
+    rag_context = f"RAG Context as of today : {today}\n\n{rag_context}"
+
     return {
-        **state,
-        "retrieved_context": rag_context
+        "retrieved_context": rag_context,
     }
 
 
