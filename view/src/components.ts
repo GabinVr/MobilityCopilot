@@ -15,6 +15,10 @@ export function ChatMessageComponent(content: string, type: "user" | "ai") {
 
 /**
  * Ambiguity detection component with chips
+ * 
+ * Note: This component is now mainly for reference.
+ * The actual ambiguity handling is done via HTMX in the backend response
+ * from /api/chat endpoint. Dynamic options are generated from the API response.
  */
 export function AmbiguityComponent(
   question: string,
@@ -23,7 +27,7 @@ export function AmbiguityComponent(
   const chips = options
     .map(
       (opt) => `
-    <button class="chip" onclick="handleAmbiguityChoice('${opt.value}')">
+    <button class="clarification-chip" hx-post="/api/chat" hx-target="#chat-history" hx-swap="beforeend" hx-vals='{"selectedOption": "${opt.value}"}'>
       ${opt.label}
     </button>
   `
@@ -34,7 +38,7 @@ export function AmbiguityComponent(
     <div class="chat-message ai">
       <div class="message-content">
         <p>${question}</p>
-        <div class="ambiguity-chips">
+        <div class="clarification-options">
           ${chips}
         </div>
       </div>

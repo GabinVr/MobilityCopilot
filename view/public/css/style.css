@@ -391,6 +391,48 @@ select:focus {
   color: white;
 }
 
+/* Clarification Options (from ambiguity detection) */
+
+.clarification-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.clarification-chip {
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-light);
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.clarification-chip:hover {
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+.message-content.error {
+  background-color: #FEE2E2;
+  color: #991B1B;
+  border: 1px solid #FCA5A5;
+}
+
+.warning-note {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background-color: #FEF3C7;
+  color: #78350F;
+  border-left: 3px solid #F59E0B;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
 /* Warning Box (Contradiction Mode) */
 
 .warning-box {

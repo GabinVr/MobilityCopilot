@@ -12,7 +12,6 @@ from core.tools.tools_api_weather_now import geomet_mtl_weather_text_bundle
 from core.tools.tools_api_histo import geomet_mtl_history_global_tool
 from core.nodes.validator import execute_sql_node
 
-
 tools = [
     geomet_mtl_weather_text_bundle,
     geomet_mtl_history_global_tool,
@@ -91,3 +90,5 @@ workflow.add_edge("contradictor", END)
 
 app = workflow.compile()
 
+def get_langgraph_app():
+    return app

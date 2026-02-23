@@ -1,15 +1,20 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
-from core.graph import app as langgraph_app
+from core.graph import get_langgraph_app
 from langchain_core.messages import HumanMessage
 from data.dashboard_queries import (
     WordCloudQuery311,
     CollisionHeatMapQuery,
     WeatherCorrelationQuery
 )
+import logging
+logger = logging.getLogger("uvicorn.error")
+logger.setLevel(logging.INFO)
 
 api = FastAPI(title="MobilityCopilot API")
+langgraph_app = get_langgraph_app()
+app = api
 
 class ChatRequest(BaseModel):
     query: str
@@ -70,22 +75,33 @@ async def chat_endpoint(request: ChatRequest):
             "audience": request.audience,
             "is_ambiguous": False
         }
-        
+        logger.debug(f"Initial state for LangGraph: {initial_state}")
         final_state = langgraph_app.invoke(initial_state)
+        logger.info(f"Final state from LangGraph: {final_state}")
         
+        # Check if the response is ambiguous
         if final_state.get("is_ambiguous"):
+            options = final_state.get("clarification_options", [])
+            answer = "\n".join(options) if isinstance(options, list) else str(options)
+            logger.info(f"Ambiguous response with options: {answer}")
             return ChatResponse(
-                answer=final_state.get("clarification_options", "Pouvez-vous clarifier?"),
+                answer=answer,
                 is_ambiguous=True
             )
-            
+        
+        # Extract analytical response - fallback to empty string if not present
+        analytical_response = final_state.get("analytical_response") or final_state.get("answer") or "Réponse vide"
+        contradictor_notes = final_state.get("contradictor_notes")
+        
+        logger.info(f"Normal response: {analytical_response[:100]}...")
         return ChatResponse(
-            answer=final_state.get("analytical_response", "Erreur de génération."),
+            answer=analytical_response,
             is_ambiguous=False,
-            contradictor_notes=final_state.get("contradictor_notes")
+            contradictor_notes=contradictor_notes
         )
 
     except Exception as e:
+        logger.error(f"Error in chat_endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @api.post("/dashboard/wordcloud-311", response_model=WordCloudResponse)

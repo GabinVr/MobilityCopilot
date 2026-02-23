@@ -326,40 +326,110 @@ const app = new Elysia()
 
   // API Routes for Chat/Dashboard updates
   .post("/api/chat", async ({ body, request }) => {
-    const { message } = body as { message: string };
+    const { message, selectedOption } = body as { message?: string; selectedOption?: string };
     const userType = await resolveUserType(request);
     const audience = userType === "municipality" ? "municipalite" : "grand_public";
 
-    const response = await fetch(`${BACKEND_API_URL}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: message, audience }),
-    });
-
-    if (!response.ok) {
+    // Use selectedOption if provided (user clicked on clarification), otherwise use message
+    const queryText = selectedOption || message || "";
+    if (!queryText) {
       return new Response(
-        JSON.stringify({ message: "Erreur backend" }),
-        {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
-        }
+        `<div class="chat-message user"><div class="message-content">Erreur: Message vide</div></div>`,
+        { status: 200, headers: { "Content-Type": "text/html" } }
       );
     }
 
-    const data = await response.json();
-    if (data.is_ambiguous) {
-      return {
-        type: "ambiguity",
-        message: data.answer,
-        options: [],
-      };
-    }
+    // Add user message to chat
+    let htmlResponse_str = `
+      <div class="chat-message user">
+        <div class="message-content">${queryText.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+      </div>
+    `;
 
-    return {
-      message: data.answer,
-      contradictions: data.contradictor_notes ? [data.contradictor_notes] : null,
-      updateDashboard: false,
-    };
+    try {
+      const response = await fetch(`${BACKEND_API_URL}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: queryText, audience }),
+      });
+
+      if (!response.ok) {
+        return new Response(
+          htmlResponse_str + `
+            <div class="chat-message ai">
+              <div class="message-content error">❌ Erreur backend: ${response.status}</div>
+            </div>
+          `,
+          { status: 200, headers: { "Content-Type": "text/html" } }
+        );
+      }
+
+      const data = await response.json();
+      
+      if (data.is_ambiguous) {
+        // Parse options from answer (newline-separated string)
+        const options = (data.answer || "")
+          .split("\n")
+          .map((opt: string) => opt.trim())
+          .filter((opt: string) => opt.length > 0);
+
+        const optionsHtml = options
+          .map(
+            (opt: string) => `
+              <button 
+                class="clarification-chip" 
+                hx-post="/api/chat"
+                hx-target="#chat-history"
+                hx-swap="beforeend"
+                hx-vals='{"selectedOption": "${opt.replace(/"/g, '\\"')}"}'
+              >
+                ${opt}
+              </button>
+            `
+          )
+          .join("");
+
+        htmlResponse_str += `
+          <div class="chat-message ai">
+            <div class="message-content">
+              <p>Pourriez-vous clarifier votre question?</p>
+              <div class="clarification-options">
+                ${optionsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      } else {
+        // Normal response
+        const answer = data.answer || "Réponse vide";
+        const notes = data.contradictor_notes 
+          ? `<div class="warning-note">⚠️ ${data.contradictor_notes}</div>` 
+          : "";
+        
+        htmlResponse_str += `
+          <div class="chat-message ai">
+            <div class="message-content">
+              ${answer.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}
+              ${notes}
+            </div>
+          </div>
+        `;
+      }
+
+      return new Response(htmlResponse_str, {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
+    } catch (error) {
+      return new Response(
+        htmlResponse_str + `
+          <div class="chat-message ai">
+            <div class="message-content error">❌ Erreur: ${(error as Error).message}</div>
+          </div>
+        `,
+        { status: 200, headers: { "Content-Type": "text/html" } }
+      );
+    }
   })
 
   // Endpoint for heatmap and weather correlation (same date picker)
@@ -790,7 +860,7 @@ function DashboardPage(userType: "public" | "municipality") {
         </div>
 
         <div class="chat-input-area">
-          <form hx-post="/api/chat" hx-target="#chat-history" hx-swap="beforeend" class="chat-form">
+          <form hx-post="/api/chat" hx-target="#chat-history" hx-swap="beforeend" class="chat-form" hx-on="htmx:afterSwap: this.reset(); document.querySelector('#chat-history').scrollTop = document.querySelector('#chat-history').scrollHeight">
             <input 
               type="text" 
               name="message" 
