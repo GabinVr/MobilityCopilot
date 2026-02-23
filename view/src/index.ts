@@ -339,12 +339,7 @@ const app = new Elysia()
       );
     }
 
-    // Add user message to chat
-    let htmlResponse_str = `
-      <div class="chat-message user">
-        <div class="message-content">${queryText.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
-      </div>
-    `;
+    let htmlResponse_str = "";
 
     try {
       const response = await fetch(`${BACKEND_API_URL}/chat`, {
@@ -355,7 +350,7 @@ const app = new Elysia()
 
       if (!response.ok) {
         return new Response(
-          htmlResponse_str + `
+          `
             <div class="chat-message ai">
               <div class="message-content error">❌ Erreur backend: ${response.status}</div>
             </div>
@@ -422,7 +417,7 @@ const app = new Elysia()
       });
     } catch (error) {
       return new Response(
-        htmlResponse_str + `
+        `
           <div class="chat-message ai">
             <div class="message-content error">❌ Erreur: ${(error as Error).message}</div>
           </div>
@@ -860,7 +855,7 @@ function DashboardPage(userType: "public" | "municipality") {
         </div>
 
         <div class="chat-input-area">
-          <form hx-post="/api/chat" hx-target="#chat-history" hx-swap="beforeend" class="chat-form" hx-on="htmx:afterSwap: this.reset(); document.querySelector('#chat-history').scrollTop = document.querySelector('#chat-history').scrollHeight">
+          <form id="chat-form" hx-post="/api/chat" hx-target="#chat-history" hx-swap="beforeend" class="chat-form">
             <input 
               type="text" 
               name="message" 
