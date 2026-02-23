@@ -9,22 +9,21 @@ volumes:
     driver: local
   sqlite_data:
     driver: local
+  huggingface_cache:
+    driver: local
 
 services:
   # ChromaDB Vector Database
   chromadb:
     image: chromadb/chroma:1.5.1
-    container_name: mobility_chromadb
+    volumes:
+      - ./chromadb:/data
     networks:
       - mobility
-    volumes:
-      - ./chromadb:/chroma/chroma
-    environment:
-      - IS_PERSISTENT=TRUE
-      - PERSIST_DIRECTORY=/chroma/chroma
-      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-FALSE}
+    ports:
+      - "8000:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -38,11 +37,10 @@ services:
     container_name: mobility_api
     networks:
       - mobility
-    ports:
-      - 8000:8000
     volumes:
       - ./data/db:/app/data/db  # SQLite database
       - ./chromadb:/app/chromadb  # ChromaDB data (shared with chromadb service)
+      - huggingface_cache:/app/.cache/huggingface  # HuggingFace models cache
       - ./core:/app/core
       - ./data:/app/data
       - ./rag:/app/rag
@@ -56,10 +54,8 @@ services:
       - CHROMA_PORT=8000
       - ALLOWED_ORIGINS=http://localhost:3000,http://web-app:3000
       - DATABASE_URL=sqlite:///./data/db/mobility.db
-      # Add other environment variables as needed
-    depends_on:
-      chromadb:
-        condition: service_healthy
+      - HF_HOME=/app/.cache/huggingface
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1337/docs"]
       interval: 30s
@@ -67,7 +63,6 @@ services:
       retries: 3
       start_period: 5s
 
-  # Bun Web Application Frontend
   web-app:
     build:
       context: ./view
@@ -83,10 +78,6 @@ services:
       - NODE_ENV=production
       - BACKEND_API_URL=http://api:1337
       - ALLOWED_ORIGINS=http://localhost:3000,http://web-app:3000
-      # Add other environment variables as needed
-    depends_on:
-      api:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 30s
