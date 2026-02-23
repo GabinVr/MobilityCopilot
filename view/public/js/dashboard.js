@@ -445,28 +445,63 @@ function setupHTMXInterceptors() {
 // ============ CHAT MESSAGE HANDLING ============
 
 function setupChatMessageHandling() {
-  const chatForm = document.querySelector(".chat-form");
+  const chatForm = document.getElementById("chat-form");
   if (!chatForm) return;
 
-  chatForm.addEventListener("submit", async function (e) {
-    e.preventDefault();
+  // Handle form submission with HTMX
+  chatForm.addEventListener("htmx:beforeSend", function (e) {
+    const input = this.querySelector(".chat-input");
+    const message = input.value.trim();
 
-    const messageInput = this.querySelector(".chat-input");
-    const message = messageInput.value;
+    if (message) {
+      // Affiche le message utilisateur immédiatement
+      addChatMessage(message, "user");
+      
+      // Vide le champ input immédiatement
+      input.value = "";
+      
+      // Affiche l'animation de chargement
+      addLoadingAnimation();
+    }
+  });
 
-    if (!message.trim()) return;
+  // Supprime l'animation AVANT d'ajouter la réponse
+  chatForm.addEventListener("htmx:beforeSwap", function (e) {
+    removeLoadingAnimation();
+  });
 
-    // Add user message to chat history
-    addChatMessage(message, "user");
+  // Nettoie après la réponse
+  chatForm.addEventListener("htmx:afterSwap", function (e) {
+    // Réinitialise le formulaire
+    this.reset();
+    
+    // Scroll vers le bas
+    scrollChatToBottom();
+  });
 
-    // Clear input
-    messageInput.value = "";
+  // Listener global pour les clics sur les chips de clarification
+  document.addEventListener("click", function (e) {
+    const chip = e.target.closest(".clarification-chip");
+    if (chip) {
+      const message = chip.textContent.trim();
+      // Affiche le message utilisateur
+      addChatMessage(message, "user");
+      // Affiche l'animation de chargement
+      addLoadingAnimation();
+    }
+  });
 
-    // Send to server
-    sendChatMessage(message);
+  // Listeners globaux pour HTMX (s'applique aux chips aussi)
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    // Supprime l'animation avant d'ajouter la réponse
+    removeLoadingAnimation();
+  });
+
+  document.addEventListener("htmx:afterSwap", function (e) {
+    // Scroll vers le bas après la réponse
+    scrollChatToBottom();
   });
 }
-
 
 function addChatMessage(content, type) {
   const chatHistory = document.getElementById("chat-history");
@@ -480,107 +515,42 @@ function addChatMessage(content, type) {
   messageDiv.appendChild(messageContent);
   chatHistory.appendChild(messageDiv);
 
-  // Auto-scroll
-  chatHistory.scrollTop = chatHistory.scrollHeight;
+  scrollChatToBottom();
 }
 
-async function sendChatMessage(message) {
-  try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: message,
-      }),
-    });
+function addLoadingAnimation() {
+  const chatHistory = document.getElementById("chat-history");
+  const loadingDiv = document.createElement("div");
+  loadingDiv.id = "loading-animation";
+  loadingDiv.className = "chat-message ai";
 
-    const data = await response.json();
+  const messageContent = document.createElement("div");
+  messageContent.className = "message-content loading-dots";
+  
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement("div");
+    dot.className = "loading-dot";
+    messageContent.appendChild(dot);
+  }
 
-    // Handle ambiguity detection
-    if (data.type === "ambiguity") {
-      addAmbiguityMessage(data.message, data.options);
-    }
-    // Handle normal response
-    else {
-      addChatMessage(data.message, "ai");
+  loadingDiv.appendChild(messageContent);
+  chatHistory.appendChild(loadingDiv);
 
-      // Handle contradiction warnings
-      if (data.contradictions) {
-        addWarningBox(data.contradictions);
-      }
-    }
+  scrollChatToBottom();
+}
 
-    // Reload dashboard data if response includes updates
-    if (data.updateDashboard) {
-      loadDashboardData();
-    }
-  } catch (error) {
-    console.error("Error sending chat message:", error);
-    addChatMessage(
-      "Désolé, une erreur s'est produite. Veuillez réessayer.",
-      "ai"
-    );
+function removeLoadingAnimation() {
+  const loadingDiv = document.getElementById("loading-animation");
+  if (loadingDiv) {
+    loadingDiv.remove();
   }
 }
 
-function addAmbiguityMessage(question, options) {
+function scrollChatToBottom() {
   const chatHistory = document.getElementById("chat-history");
-  const messageDiv = document.createElement("div");
-  messageDiv.className = "chat-message ai";
-
-  let html = `
-    <div class="message-content">
-      <p>${question}</p>
-      <div class="ambiguity-chips">
-  `;
-
-  options.forEach((option) => {
-    html += `
-      <button class="chip" onclick="handleAmbiguityChoice('${option.value}')">
-        ${option.label}
-      </button>
-    `;
-  });
-
-  html += `
-      </div>
-    </div>
-  `;
-
-  messageDiv.innerHTML = html;
-  chatHistory.appendChild(messageDiv);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
-}
-
-function handleAmbiguityChoice(value) {
-  addChatMessage(`Clarification: ${value}`, "user");
-  sendChatMessage(`Je choisis: ${value}`);
-}
-
-function addWarningBox(contradictions) {
-  const chatHistory = document.getElementById("chat-history");
-  const warningDiv = document.createElement("div");
-  warningDiv.className = "warning-box";
-
-  let html = `
-    <div class="warning-box-title">
-      <span class="warning-icon">⚠️</span>
-      <span>Limites et risques d'interprétation</span>
-    </div>
-    <div class="warning-box-content">
-  `;
-
-  contradictions.forEach((contradiction) => {
-    html += `<p>• ${contradiction}</p>`;
-  });
-
-  html += `</div>`;
-
-  warningDiv.innerHTML = html;
-  chatHistory.appendChild(warningDiv);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
+  if (chatHistory) {
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
 }
 
 // ============ BRIEFING MODAL ============
@@ -617,7 +587,6 @@ function getTrendClass(trendsValue) {
   return trendsValue > 0 ? "trend-up" : "trend-down";
 }
 
-// Export functions for use in HTMX attributes
-window.handleAmbiguityChoice = handleAmbiguityChoice;
+// Export functions for use in templates/HTMX
 window.openBriefingModal = openBriefingModal;
 window.closeBriefingModal = closeBriefingModal;
