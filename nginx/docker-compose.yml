@@ -1,14 +1,14 @@
 networks:
-  mobility:
+  mobilitycopilot_net:
     external: true
-    name: mobility
+    name: mobilitycopilot_net
 
 services:
   nginx:
     image: nginx:alpine
     container_name: mobility_nginx
     networks:
-      - mobility
+      - mobilitycopilot_net
     ports:
       - "80:80"
       - "443:443"

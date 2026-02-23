@@ -5,6 +5,8 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  release:
+    types: [ "published" ]
 
 permissions:
   contents: read
@@ -46,6 +48,7 @@ jobs:
         python -m coverage report --show-missing >> "$GITHUB_STEP_SUMMARY"
   deploy:
     runs-on: ubuntu-latest
+    if: github.event_name == 'release'
     steps:
       - name: Deploy to DigitalOcean Droplet
         uses: appleboy/ssh-action@master
@@ -58,5 +61,6 @@ jobs:
             cd /home/${{secrets.DEPLOY_USERNAME}}/MobilityCopilot
             git pull origin main
             docker compose down
-            docker compose build
+            docker system prune -f
+            docker compose up -d --build
             echo 'Deployment to digital ocean finished'
