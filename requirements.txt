@@ -12,3 +12,4 @@ uvicorn[standard]>=0.27,<1.0
 pandas
 numpy>=2.0,<3.0
 langchain_community
+apscheduler
