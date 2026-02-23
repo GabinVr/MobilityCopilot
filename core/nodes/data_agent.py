@@ -87,7 +87,7 @@ def _sanitize_sql_query(candidate: str) -> str:
 	return sql
 
 
-def sql_generator_node(state: CopilotState) -> CopilotState:
+def data_agent_node(state: CopilotState) -> CopilotState:
 	messages = state.get("messages", [])
 	if not any(getattr(message, "type", None) == "human" for message in messages):
 		return {

@@ -141,7 +141,7 @@ class WeatherCorrelationResponse(BaseModel):
 class TrendRequest(BaseModel):
     as_of_date: Optional[str] = Field(
         default=None,
-        description="Date de référence au format YYYY-MM-DD (optionnel)."
+        description="Date d'analyse au format YYYY-MM-DD. Si absent, utilise la date max disponible.",
     )
 
 
@@ -262,9 +262,7 @@ async def weather_correlation_endpoint(request: WeatherCorrelationRequest):
 
 @api.post("/dashboard/trends", response_model=TrendResponse)
 async def trends_endpoint(request: TrendRequest):
-    """
-    Générer un rapport de tendances de mobilité (collisions + 311).
-    """
+    """Générer un rapport de tendances mobilité (collisions + requêtes 311)."""
     try:
         query = TrendQuery()
         result = query.execute(as_of_date=request.as_of_date)
@@ -273,4 +271,5 @@ async def trends_endpoint(request: TrendRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
