@@ -112,7 +112,7 @@ class SoftDataCleaner(DataCleaner):
     
     # Règles de conversion par table
     CONVERSION_RULES: Dict[str, Dict[str, List[str]]] = {
-        "collisions": {
+        "collisions_routieres": {
             "int": ["NO_CIVIQ_ACCDN", "NB_METRE_DIST_ACCD", "NB_VEH_IMPLIQUES_ACCDN",
                    "NB_MORTS", "NB_BLESSES_GRAVES", "NB_BLESSES_LEGERS", "AN", "NB_VICTIMES_TOTAL",
                    "NB_DECES_PIETON", "NB_BLESSES_PIETON", "NB_VICTIMES_PIETON",
@@ -125,7 +125,7 @@ class SoftDataCleaner(DataCleaner):
             "float": ["LOC_X", "LOC_Y", "LOC_LONG", "LOC_LAT"],
             "date": ["DT_ACCDN"],
         },
-        "demandes": {
+        "requetes311": {
             "int": ["PROVENANCE_TELEPHONE", "PROVENANCE_COURRIEL", "PROVENANCE_PERSONNE",
                    "PROVENANCE_COURRIER", "PROVENANCE_TELECOPIEUR", "PROVENANCE_INSTANCE",
                    "PROVENANCE_MOBILE", "PROVENANCE_MEDIASOCIAUX", "PROVENANCE_SITEINTERNET",
