@@ -10,6 +10,7 @@ from data.dashboard_queries import (
     CollisionHeatMapQuery,
     WeatherCorrelationQuery
 )
+from data.trend import TrendQuery
 import logging
 logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
@@ -137,6 +138,24 @@ class WeatherCorrelationResponse(BaseModel):
     top_periods: List[Dict[str, Any]]
 
 
+class TrendRequest(BaseModel):
+    as_of_date: Optional[str] = Field(
+        default=None,
+        description="Date de référence au format YYYY-MM-DD (optionnel)."
+    )
+
+
+class TrendResponse(BaseModel):
+    generated_at: str
+    as_of_date: str
+    monthly_collisions: Dict[str, Any]
+    pedestrian_3m_vs_last_year: Dict[str, Any]
+    hourly_peak_shift: Dict[str, Any]
+    weekly_311_changes: Dict[str, Any]
+    weak_signals_311: Dict[str, Any]
+    insights: List[str]
+
+
 @api.get("/last_hotspot_report")
 
 def get_last_hotspot_report():
@@ -240,4 +259,18 @@ async def weather_correlation_endpoint(request: WeatherCorrelationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@api.post("/dashboard/trends", response_model=TrendResponse)
+async def trends_endpoint(request: TrendRequest):
+    """
+    Générer un rapport de tendances de mobilité (collisions + 311).
+    """
+    try:
+        query = TrendQuery()
+        result = query.execute(as_of_date=request.as_of_date)
+        return TrendResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
