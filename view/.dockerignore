@@ -1,0 +1,70 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Dependencies (will be installed during build)
+node_modules/
+
+# Lock files (not needed as they're referenced but rebuilt)
+yarn.lock
+npm-shrinkwrap.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tests (if any)
+__tests__/
+.test/
+*.test.ts
+
+# Python (not needed for frontend)
+__pycache__/
+*.py
+*.pyc
+venv/
+
+# Backend API (not needed for frontend)
+../core/
+../data/
+../rag/
+../utils/
+../main.py
+../requirements.txt
+../Dockerfile
+../docker-compose.yml
+
+# Documentation & old files
+*.md
+*.old
+*.bak
+docs/
+DELIVERABLES.md
+INTEGRATION.md
+PROJECT_SUMMARY.md
+QUICKSTART.md
+SETUP.md
+START_HERE.md
+
+# Misc
+*.log
+tmp/
+temp/
+.gitkeep
+.DS_Store

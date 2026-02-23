@@ -227,3 +227,4 @@ db/
 .DS_Store
 *.old
 .vscode/
+logconf.yml

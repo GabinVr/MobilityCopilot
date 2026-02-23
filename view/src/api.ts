@@ -130,9 +130,10 @@ export class ChatApi {
 
   /**
    * Send chat message
+   * Note: Frontend proxy at /api/chat handles parameter mapping to backend
    */
   async sendMessage(message: string, userType: string) {
-    return this.client.post("/chat", { message, userType });
+    return this.client.post("/api/chat", { message, userType });
   }
 
   /**

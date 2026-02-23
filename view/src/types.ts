@@ -40,18 +40,14 @@ export interface ChatRequest {
   context?: Record<string, any>;
 }
 
-export interface ChatResponse {
-  id?: string;
-  message: string;
-  type: "normal" | "ambiguity" | "error";
-  userType: UserType;
-  options?: Array<{
-    label: string;
-    value: string;
-  }>;
-  contradictions?: string[];
-  updateDashboard?: boolean;
-  metadata?: Record<string, any>;
+/**
+ * Backend API response for chat endpoint
+ */
+export interface ChatBackendResponse {
+  answer: string;
+  is_ambiguous: boolean;
+  contradictor_notes?: string | null;
+  retrieved_context?: string;
 }
 
 // ============ AMBIGUITY DETECTION ============

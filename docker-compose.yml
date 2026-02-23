@@ -1,19 +1,87 @@
+version: '3.8'
+
 networks:
-  net:
+  mobility:
     driver: bridge
-    
+
+volumes:
+  chromadb_data:
+    driver: local
+  sqlite_data:
+    driver: local
+  huggingface_cache:
+    driver: local
+
 services:
+  # ChromaDB Vector Database
   chromadb:
-    # Pinned to match the Python chromadb client version.
-    image: chromadb/chroma:1.5.1 
+    image: chromadb/chroma:1.5.1
     volumes:
-      - ./chromadb:/chroma/chroma
-    environment:
-      - IS_PERSISTENT=TRUE
-      - PERSIST_DIRECTORY=/chroma/chroma # this is the default path, change it as needed
-      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-FALSE}
-    ports:
-      - 8000:8000
+      - ./chromadb:/data
     networks:
-      - net
+      - mobility
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mobility_api
+    networks:
+      - mobility
+    volumes:
+      - ./data/db:/app/data/db  # SQLite database
+      - ./chromadb:/app/chromadb  # ChromaDB data (shared with chromadb service)
+      - huggingface_cache:/app/.cache/huggingface  # HuggingFace models cache
+      - ./core:/app/core
+      - ./data:/app/data
+      - ./rag:/app/rag
+      - ./utils:/app/utils
+    env_file: 
+      - ./.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - ALLOWED_ORIGINS=http://localhost:3000,http://web-app:3000
+      - DATABASE_URL=sqlite:///./data/db/mobility.db
+      - HF_HOME=/app/.cache/huggingface
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1337/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  web-app:
+    build:
+      context: ./view
+      dockerfile: Dockerfile
+    container_name: mobility_web
+    networks:
+      - mobility
+    ports:
+      - 3000:3000
+    env_file: 
+      - ./view/.env
+    environment:
+      - NODE_ENV=production
+      - BACKEND_API_URL=http://api:1337
+      - ALLOWED_ORIGINS=http://localhost:3000,http://web-app:3000
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
