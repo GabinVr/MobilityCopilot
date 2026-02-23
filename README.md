@@ -16,6 +16,17 @@ uvicorn main:api --reload
 docker build -t mobilitycopilot:latest .
 docker run -p 8000:8000 mobilitycopilot:latest
 ```
+
+### Monitor CSV 311 (10 checks/day)
+```bash
+docker compose up -d requetes311-watcher
+docker compose logs -f requetes311-watcher
+```
+The watcher stores:
+- Local CSV at `data/csv/requetes311.csv`
+- State file at `data/db/requetes311_monitor_state.json`
+You can tune frequency with `REQUETES311_CHECKS_PER_DAY` (default: `10`).
+
 ## ENJOY !
 Watch the current API endpoint once the server is running:
 `http://127.0.0.1:8000/docs`
