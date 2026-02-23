@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from data.dashboard_queries import DashboardQuery
+
 LOCAL_DIR = Path(__file__).parent
 DEFAULT_DB_PATH = os.path.join(LOCAL_DIR, "db/mobility.db")
 
@@ -27,14 +29,13 @@ def _direction_from_diff(diff: float) -> str:
     return "stable"
 
 
-class TrendQuery:
+class TrendQuery(DashboardQuery):
     """
-    Isolated trend analyzer.
-    This file is standalone on purpose to avoid impacting existing flows.
+    Trend analyzer implementing the DashboardQuery interface.
     """
 
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
-        self.db_path = db_path
+        super().__init__(db_path)
         self.collisions_table = self._pick_table(["collisions_routieres", "collisions"])
         self.requests_table = self._pick_table(["requetes311", "demandes"])
 
@@ -429,7 +430,7 @@ class TrendQuery:
             "signals": signals[:top_n],
         }
 
-    def build_trend_report(self, as_of_date: Optional[str] = None) -> Dict[str, Any]:
+    def execute(self, as_of_date: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         collisions_df = self._load_collisions()
         requests_df = self._load_requests_311()
         as_of = self._resolve_as_of_date(collisions_df, requests_df, as_of_date=as_of_date)
@@ -479,5 +480,5 @@ class TrendQuery:
 
 if __name__ == "__main__":
     query = TrendQuery()
-    report = query.build_trend_report()
+    report = query.execute()
     print(json.dumps(report, indent=2, ensure_ascii=False))

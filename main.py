@@ -270,7 +270,7 @@ async def trends_endpoint(request: TrendRequest):
     """
     try:
         query = TrendQuery()
-        result = query.build_trend_report(as_of_date=request.as_of_date)
+        result = query.execute(as_of_date=request.as_of_date)
         return TrendResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
