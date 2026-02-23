@@ -13,7 +13,7 @@ from data.dashboard_queries import (
 
 DERNIER_HOTSPOT = "Aucun rapport généré pour le moment."
 
-def hebdo_hotspots_briefing_endpoint():
+def hebdo_hotspots_briefing_generator():
     """Générer un briefing hebdomadaire des hotspots de mobilité à Montréal et le stocker dans une variable globale."""
 
     global DERNIER_HOTSPOT
@@ -48,15 +48,21 @@ def hebdo_hotspots_briefing_endpoint():
         "is_ambiguous": False
     }
 
+    no_data_message = "Aucun incident ou requête majeure n'a été enregistré dans nos bases de données pour cette semaine."
+
     try:
         resultats = langgraph_app.invoke(initial_state)
 
         rapport = resultats.get("analytical_response", "Erreur de génération.")
         notes = resultats.get("contradictor_notes", "")
 
-        DERNIER_HOTSPOT = f"Voici le rapport hebdomadaire des hotspots de mobilité à Montréal :\n\n{rapport}\n\n Notes de sécurité : {notes}"
+        if rapport == no_data_message:
+            DERNIER_HOTSPOT = no_data_message
+        else:
+            DERNIER_HOTSPOT = f"Voici le rapport hebdomadaire des hotspots de mobilité à Montréal :\n\n{rapport}\n\n Notes de sécurité : {notes}"
+    
     except Exception as e:
-        DERNIER_HOTSPOT = f"Erreur lors de la génération du rapport : {str(e)}"
+        DERNIER_HOTSPOT = f"Erreur lors de la génération du rapport "
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,7 +70,7 @@ async def lifespan(app: FastAPI):
     scheduler = BackgroundScheduler()
 
     # Demo: Générer un briefing hebdomadaire tous les 2 minutes (pour les tests). En production, on peut le faire une fois par semaine.
-    scheduler.add_job(hebdo_hotspots_briefing_endpoint, 'interval', minutes=2)
+    scheduler.add_job(hebdo_hotspots_briefing_generator, 'interval', minutes=2)
 
     # scheduler.add_job(hebdo_hotspots_briefing_endpoint, 'cron', day_of_week='mon', hour=8, minute=0)
 
@@ -135,13 +141,11 @@ class WeatherCorrelationResponse(BaseModel):
 
 def get_last_hotspot_report():
     """
-    Retrieve the most recent hotspot analysis report.
-
-    Returns:
-        dict: A JSON-serializable object containing the latest hotspot report
-        under the ``report`` key.
+    Récupère le rapport d'analyse de hotspot le plus récent.
+    Retourne:
+        dict: Un objet JSON sérialisable contenant le dernier rapport de hotspot
+        sous la clé ``report``
     """
-    global DERNIER_HOTSPOT
     return {"report": DERNIER_HOTSPOT}
 
 @api.post("/chat", response_model=ChatResponse)
