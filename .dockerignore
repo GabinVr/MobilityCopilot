@@ -1,26 +1,30 @@
-# Git
-.git
-.gitignore
-.gitattributes
-
-# Python cache
+# Build artifacts
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 *.so
 .Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Virtual environments
-.venv
 venv/
 ENV/
 env/
-
-# Environment files
-.env
-.env.local
-.env.*.local
+.venv
 
 # IDE
 .vscode/
@@ -28,41 +32,60 @@ env/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Tests & Coverage
-tests/
-pytest.ini
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
 
-# Node/Bun (for backend)
-node_modules/
-bun.lockb
+# Project-specific exclusions
+# Exclude nginx config and logs (not needed in API container)
+nginx/
 
-# Frontend (not needed for backend API)
+# Exclude frontend (not needed in API container)
 view/
 
-# Build artifacts
-build/
-dist/
-*.egg-info/
-.installed.cfg
+# Exclude ChromaDB data (mounted as volume)
+chromadb/
 
-# Database files
-*.db-journal
+# Exclude test files (not needed in production)
+tests/
 
-# Documentation & old files
-*.md
-*.old
-*.bak
-docs/
+# Exclude database (mounted as volume)
+data/db/
 
-# Misc
-*.log
-tmp/
-temp/
-.gitkeep
+# Keep requirements and source code
+!requirements.txt
+!main.py
+!core/
+!data/
+!rag/
+!utils/
+!logconf.yml
+!pytest.ini
+!README.md
 
-nginx/
+# Allow data scripts but exclude DB files
+data/**/*.db
+data/**/*.sqlite
+data/**/*.sqlite3
+

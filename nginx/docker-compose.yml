@@ -1,6 +1,7 @@
 networks:
   mobility:
     external: true
+    name: mobility
 
 services:
   nginx:
