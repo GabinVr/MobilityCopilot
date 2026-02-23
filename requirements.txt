@@ -20,3 +20,4 @@ langgraph-prebuilt==0.6.5
 langgraph-sdk==0.2.15
 langsmith==0.7.6
 langchain-chroma>=1.1.0,<2.0.0
+apscheduler

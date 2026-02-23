@@ -44,14 +44,16 @@ def _strip_llm_wrappers(raw_text: str) -> str:
 	fenced_match = _SQL_BLOCK_PATTERN.search(text)
 	if fenced_match:
 		text = fenced_match.group(1).strip()
-
+		return text
+	
 	text = _XML_TAG_PATTERN.sub("", text)
 	text = text.strip()
 
 	if text.lower().startswith("sql:"):
 		text = text[4:].strip()
+		return text
 
-	return text
+	return None
 
 
 def _normalize_sql(sql: str) -> str:
@@ -114,6 +116,7 @@ def sql_generator_node(state: CopilotState) -> CopilotState:
 		"1) Use WEATHER TOOLS for current or historical weather requests.\n"
 		"2) Generate a SQL query (SELECT/WITH only) for traffic, 311, or collision data.\n"
 		"If you generate SQL, wrap it in ```sql blocks.\n"
+		"If you want to generate both a SQL query and a tool call, prioritize the tool call, you will generate sql in a second turn after the tool call.\n"
 		f"Audience: {state.get('audience')}\n"
 		f"Context: {state.get('retrieved_context')}"
 	)

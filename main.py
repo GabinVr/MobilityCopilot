@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from core.graph import get_langgraph_app
 from langchain_core.messages import HumanMessage
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.background import BackgroundScheduler
 from data.dashboard_queries import (
     WordCloudQuery311,
     CollisionHeatMapQuery,
@@ -12,7 +14,77 @@ import logging
 logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
 
-api = FastAPI(title="MobilityCopilot API")
+DERNIER_HOTSPOT = "Aucun rapport généré pour le moment."
+
+def hebdo_hotspots_briefing_generator():
+    """Générer un briefing hebdomadaire des hotspots de mobilité à Montréal et le stocker dans une variable globale."""
+
+    global DERNIER_HOTSPOT
+    prompt = """
+        Generate the weekly mobility hotspots briefing for Montreal.
+    
+    TASK:
+    1. Analyze the mobility data (collisions, 311 requests, etc.) and weather conditions provided in the context for the last 7 days.
+    2. Identify the TOP 5 absolute worst hotspots based on the highest concentration of problems.
+    
+    CRITICAL ANTI-HALLUCINATION RULES:
+    - You MUST rely EXCLUSIVELY on the data retrieved by the SQL queries and API tools.
+    - IF THE DATA IS EMPTY or insufficient to find 5 hotspots, DO NOT INVENT or hallucinate locations. 
+    - If there is absolutely no data, your response must be exactly: "Aucun incident ou requête majeure n'a été enregistré dans nos bases de données pour cette semaine."
+    - If you only find 2 hotspots in the real data, only output 2. Do not invent the remaining 3.
+    
+    STRICT FORMATTING RULES (Only for REAL data found):
+    - Hotspot #[Rank] : [Location/Zone] - [Total Number] [Type of Issue] ([Specific details]), [Time/Duration/Context], [Weather condition if relevant].
+    
+    EXAMPLES OF EXPECTED OUTPUT (Do NOT copy these, use them only as a formatting guide):
+    - Hotspot #1 : Intersection Peel/Ste-Catherine - 32 collisions (dont 6 graves), surtout entre 16h-19h, sous la pluie.
+    - Hotspot #2 : Secteur Plateau-Mont-Royal - 120 requêtes 311 (Nids-de-poule) en 7 jours.
+    
+    IMPORTANT: 
+    - Output ONLY the formatted list based on REAL data.
+    - Respond strictly in French.
+    """
+    
+    initial_state = {
+        "messages": [HumanMessage(content=prompt)],
+        "audience": "grand_public",
+        "is_ambiguous": False
+    }
+
+    no_data_message = "Aucun incident ou requête majeure n'a été enregistré dans nos bases de données pour cette semaine."
+
+    try:
+        resultats = langgraph_app.invoke(initial_state)
+
+        rapport = resultats.get("analytical_response", "Erreur de génération.")
+        notes = resultats.get("contradictor_notes", "")
+
+        if rapport == no_data_message:
+            DERNIER_HOTSPOT = no_data_message
+        else:
+            DERNIER_HOTSPOT = f"Voici le rapport hebdomadaire des hotspots de mobilité à Montréal :\n\n{rapport}\n\n Notes de sécurité : {notes}"
+    
+    except Exception as e:
+        DERNIER_HOTSPOT = f"Erreur lors de la génération du rapport "
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    scheduler = BackgroundScheduler()
+
+    # Demo: Générer un briefing hebdomadaire tous les 2 minutes (pour les tests). En production, on peut le faire une fois par semaine.
+    scheduler.add_job(hebdo_hotspots_briefing_generator, 'interval', minutes=2)
+
+    # scheduler.add_job(hebdo_hotspots_briefing_endpoint, 'cron', day_of_week='mon', hour=8, minute=0)
+
+    scheduler.start()
+
+    yield
+
+    scheduler.shutdown()
+
+
+api = FastAPI(title="MobilityCopilot API", lifespan=lifespan)
 langgraph_app = get_langgraph_app()
 app = api
 
@@ -66,6 +138,18 @@ class WeatherCorrelationResponse(BaseModel):
     precipitation_analysis: Dict[str, Any]
     snow_analysis: Dict[str, Any]
     top_periods: List[Dict[str, Any]]
+
+
+@api.get("/last_hotspot_report")
+
+def get_last_hotspot_report():
+    """
+    Récupère le rapport d'analyse de hotspot le plus récent.
+    Retourne:
+        dict: Un objet JSON sérialisable contenant le dernier rapport de hotspot
+        sous la clé ``report``
+    """
+    return {"report": DERNIER_HOTSPOT}
 
 @api.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
@@ -158,3 +242,5 @@ async def weather_correlation_endpoint(request: WeatherCorrelationRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+

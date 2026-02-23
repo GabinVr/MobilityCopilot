@@ -27,6 +27,8 @@ def contradictor_node(state: CopilotState) -> CopilotState:
     INSTRUCTIONS:
     1. Produce a short report (2-3 sentences)
     2. Be constructive but firm on the need for caution.
+    3. Speak in a clear and concise manner, suitable for a general audience, use simple language and avoid technical jargon like 'SQL' or 'database'.
+    4. Speak in the user's language (French or English) based on the conversation history.
     """
 
     prompt_context = f"""
