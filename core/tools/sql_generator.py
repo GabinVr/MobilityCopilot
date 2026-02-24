@@ -1,5 +1,13 @@
 import re
-from langchain_core.tools import tool
+try:
+    from langchain_core.tools import tool
+except Exception:  # pragma: no cover - fallback for lightweight test stubs
+    def tool(*_args, **_kwargs):
+        def _decorator(func):
+            return func
+
+        return _decorator
+
 from pydantic import BaseModel, Field
 
 _SQL_BLOCK_PATTERN = re.compile(r"```(?:sql)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
@@ -53,6 +61,9 @@ def sql_generator_tool(query: str) -> str:
     Outil OBLIGATOIRE pour interroger la base de données sur les collisions, 311, etc.
     Valide et prépare une requête SQL.
     """
+    if not query:
+        return "SQL_ERROR: Requête SQL vide ou non fournie."
+    
     try:
         parsed_sql = _strip_llm_wrappers(query)
         if not parsed_sql:
