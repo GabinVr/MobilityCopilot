@@ -1,4 +1,5 @@
 fastapi>=0.110,<1.0
+fastapi-cache2==0.2.2
 chromadb==1.5.1
 huggingface-hub>=0.33.4,<1.0.0
 pytest>=8.0,<9.0
@@ -21,6 +22,9 @@ langgraph-prebuilt==0.6.5
 langgraph-sdk==0.2.15
 langsmith==0.7.6
 langchain-chroma>=1.1.0,<2.0.0
+langchain-redis==0.2.5
+redis==7.1.1
+aioredis>=2.0
 apscheduler
 datetime
 pathlib 

@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException
+from cache import cache
 from data.dashboard_queries import WeatherCorrelationQuery
 from models import WeatherCorrelationRequest, WeatherCorrelationResponse
 
 weather_correlation_router = APIRouter()
 
 @weather_correlation_router.post("/dashboard/weather-correlation", response_model=WeatherCorrelationResponse)
+@cache(expire=3600*3)  
 async def weather_correlation_endpoint(request: WeatherCorrelationRequest):
     """
     Analyser la corrélation entre les conditions météorologiques et les collisions routières.

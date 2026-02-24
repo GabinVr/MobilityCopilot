@@ -1,9 +1,12 @@
 from services.weekly_report import hebdo_hotspots_briefing_generator
+from fastapi import FastAPI
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
+from cache import init_cache
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: FastAPI):
+    await init_cache()
 
     scheduler = BackgroundScheduler()
 

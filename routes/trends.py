@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException
+from cache import cache
 from data.trend import TrendQuery
 from models import TrendRequest, TrendResponse
 
 trends_router = APIRouter()
 
 @trends_router.post("/dashboard/trends", response_model=TrendResponse)
+@cache(expire=3600)
 async def trends_endpoint(request: TrendRequest):
     """Générer un rapport de tendances mobilité (collisions + requêtes 311)."""
     try:
