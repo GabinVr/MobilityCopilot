@@ -32,7 +32,8 @@ def data_agent_node(state: CopilotState) -> CopilotState:
         "   - FOR COLLISIONS: The 'collisions_routieres' table ALREADY has a weather column (`CD_COND_METEO`). DO NOT compare months! Instead, use ONE SQL QUERY with CASE WHEN to compare clear weather ('11') vs bad weather ('14','15','17','18','19') in specific sectors. \n"
         "     Example: `SELECT ACCDN_PRES_DE, SUM(CASE WHEN CD_COND_METEO = '11' THEN 1 ELSE 0 END) as clear_weather, SUM(CASE WHEN CD_COND_METEO IN ('14','15','17','18','19') THEN 1 ELSE 0 END) as bad_weather FROM collisions_routieres WHERE ACCDN_PRES_DE IS NOT NULL GROUP BY ACCDN_PRES_DE ORDER BY bad_weather DESC LIMIT 5;`\n"
         "   - FOR 311 REQUESTS: The 'requetes311' table has NO weather column. Therefore, you MUST use ONE SINGLE SQL QUERY using CASE WHEN to compare a cold month (e.g., '2023-01') and a warm month (e.g., '2023-07') by grouping by NATURE or ARRONDISSEMENT.\n"        
-        
+        "   -If you have to compare cold vs warm months, you can assume that winter months are December, January, February and summer months are June, July, August. So compare 3 mounth winter period vs 3 mounth summer period "
+		
 		"🚨 THE WEATHER ALGORITHM (ONLY FOR FINDING EXTREMES) 🚨\n"
         "1. CURRENT WEATHER: For today's data or forecasts, use 'geomet_mtl_weather_text_bundle'.\n"
         "2. FINDING EXTREMES: ONLY if the user explicitly asks for an extreme (e.g., 'the coldest day', 'the biggest snowstorm'), use the 'geomet_mtl_history_global_tool' with this STRICT sequential process:\n"

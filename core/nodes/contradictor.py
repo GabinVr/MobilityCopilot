@@ -38,10 +38,11 @@ def contradictor_node(state: CopilotState) -> CopilotState:
     """
 
     prompt_context = f"""
-    BUSINESS RULES: {business_rules}
-    GATHERED DATA (History): {chat_history_text}
-    FINAL ANSWER TO AUDIT: {final_answer}
-    
+    Business rules: {business_rules}
+    Chat history: {chat_history_text}
+    SQL results: {state.get("query_results")}
+    Final answer: {final_answer}
+
     Generate the contradictor report based strictly on the above information and the required structure.
     """
 

@@ -31,10 +31,13 @@ def synthesis_node(state: CopilotState) -> CopilotState:
 
     The question to answer is: "{question}"
 
+    STYLE GUIDE:
+    {style_guide}
+
     INSTRUCTIONS:
     1. Base your answer ONLY on the data provided in the GATHERED DATA section. 
     2. Pay special attention to the message starting with "DATA GATHERING COMPLETE".
-    3. TONE & AUDIENCE: {style_guide}
+    3. Follow the STYLE GUIDE above for audience adaptation.
     4. Never hallucinate information that is not explicitly stated in the gathered data. If you don't have enough information to answer, say "Je n'ai pas assez d'informations pour répondre à cette question." and stop.
     5. NEVER say 'SQL', 'database', 'dataframe', 'API', or 'Data Agent'. Speak as the primary mobility expert.
     6. Always reply in French, as this is for the City of Montreal.

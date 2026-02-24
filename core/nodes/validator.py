@@ -10,8 +10,13 @@ def execute_sql_node(state: CopilotState) -> CopilotState:
     """
     messages = state.get("messages", [])
     last_message = messages[-1] if messages else None
+    sql_query = state.get("generated_query") or ""
 
-    if last_message.type == "tool" and last_message.name == "generate_and_validate_sql":
+    if (
+        last_message is not None
+        and getattr(last_message, "type", None) == "tool"
+        and getattr(last_message, "name", None) == "generate_and_validate_sql"
+    ):
 
         raw_content = last_message.content
         sql_query = ""

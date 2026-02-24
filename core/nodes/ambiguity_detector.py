@@ -58,7 +58,7 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     Thought: Asks for a correlation between weather and 311. We have a specific algorithm for this, but it's not ambiguous because the user is clear about what they want.
     Output: is_ambiguous=False, need_external_data=True
 
-    USER QUESTION TO CLASSIFY: "{question}"
+    USER QUESTION: "{question}"
     """
 
     response = llm.with_structured_output(AmbiguityOutput).invoke(prompt)
