@@ -1,8 +1,12 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from fastapi.testclient import TestClient
-from main import (
-    api,
+from main import api
+from routes.chat import chat_router, langraph
+from routes.hotspot import hotspot_router
+from services.weekly_report import get_last_hotspot_report, hebdo_hotspots_briefing_generator
+
+from models import (    
     ChatRequest,
     ChatResponse,
     WordCloudRequest,
@@ -32,7 +36,7 @@ class TestChatEndpoint:
             "audience": "grand_public"
         }
         
-        with patch('main.langgraph_app.invoke') as mock_invoke:
+        with patch('routes.chat.langraph.invoke') as mock_invoke:
             mock_invoke.return_value = {
                 "messages": [],
                 "audience": "grand_public",
@@ -54,7 +58,7 @@ class TestChatEndpoint:
             "audience": "municipalite"
         }
         
-        with patch('main.langgraph_app.invoke') as mock_invoke:
+        with patch('routes.chat.langraph.invoke') as mock_invoke:
             mock_invoke.return_value = {
                 "messages": [],
                 "is_ambiguous": True,
@@ -75,7 +79,7 @@ class TestChatEndpoint:
             "audience": "grand_public"
         }
         
-        with patch('main.langgraph_app.invoke') as mock_invoke:
+        with patch('routes.chat.langraph.invoke') as mock_invoke:
             mock_invoke.return_value = {
                 "messages": [],
                 "is_ambiguous": False,
@@ -96,7 +100,7 @@ class TestChatEndpoint:
             "audience": "grand_public"
         }
         
-        with patch('main.langgraph_app.invoke') as mock_invoke:
+        with patch('routes.chat.langraph.invoke') as mock_invoke:
             mock_invoke.side_effect = Exception("Erreur du langgraph")
             
             response = client.post("/chat", json=payload)
@@ -114,7 +118,7 @@ class TestWordCloudEndpoint:
             "time_range": "last_month"
         }
         
-        with patch('main.WordCloudQuery311') as mock_query_class:
+        with patch('routes.wordcloud.WordCloudQuery311') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -137,7 +141,7 @@ class TestWordCloudEndpoint:
         """Tester l'endpoint wordcloud avec les paramètres par défaut."""
         payload = {}
         
-        with patch('main.WordCloudQuery311') as mock_query_class:
+        with patch('routes.wordcloud.WordCloudQuery311') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -156,7 +160,7 @@ class TestWordCloudEndpoint:
             "time_range": "2023-01-01 to 2023-01-31"
         }
         
-        with patch('main.WordCloudQuery311') as mock_query_class:
+        with patch('routes.wordcloud.WordCloudQuery311') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -178,7 +182,7 @@ class TestCollisionHeatMapEndpoint:
             "time_range": "last_month"
         }
         
-        with patch('main.CollisionHeatMapQuery') as mock_query_class:
+        with patch('routes.collision_heatmap.CollisionHeatMapQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -212,7 +216,7 @@ class TestCollisionHeatMapEndpoint:
             "severity_filter": 4
         }
         
-        with patch('main.CollisionHeatMapQuery') as mock_query_class:
+        with patch('routes.collision_heatmap.CollisionHeatMapQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -240,7 +244,7 @@ class TestCollisionHeatMapEndpoint:
             "lightly_injured_nb": 5
         }
         
-        with patch('main.CollisionHeatMapQuery') as mock_query_class:
+        with patch('routes.collision_heatmap.CollisionHeatMapQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -271,7 +275,7 @@ class TestWeatherCorrelationEndpoint:
             "frequency": "week"
         }
         
-        with patch('main.WeatherCorrelationQuery') as mock_query_class:
+        with patch('routes.weather_correlation.WeatherCorrelationQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -328,7 +332,7 @@ class TestWeatherCorrelationEndpoint:
             "frequency": "month"
         }
         
-        with patch('main.WeatherCorrelationQuery') as mock_query_class:
+        with patch('routes.weather_correlation.WeatherCorrelationQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -361,7 +365,7 @@ class TestWeatherCorrelationEndpoint:
             "frequency": "week"
         }
         
-        with patch('main.WeatherCorrelationQuery') as mock_query_class:
+        with patch('routes.weather_correlation.WeatherCorrelationQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = {
@@ -381,7 +385,7 @@ class TestWeatherCorrelationEndpoint:
             "end_date": "2021-01-31"
         }
         
-        with patch('main.WeatherCorrelationQuery') as mock_query_class:
+        with patch('routes.weather_correlation.WeatherCorrelationQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.side_effect = Exception("Database error")
@@ -431,7 +435,7 @@ class TestTrendsEndpoint:
             ]
         }
 
-        with patch('main.TrendQuery') as mock_query_class:
+        with patch('routes.trends.TrendQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.return_value = mock_result
@@ -449,7 +453,7 @@ class TestTrendsEndpoint:
             "as_of_date": "2024-99-99"
         }
 
-        with patch('main.TrendQuery') as mock_query_class:
+        with patch('routes.trends.TrendQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.side_effect = ValueError("Invalid as_of_date format")
@@ -463,7 +467,7 @@ class TestTrendsEndpoint:
     def test_trends_endpoint_exception(self, client):
         payload = {}
 
-        with patch('main.TrendQuery') as mock_query_class:
+        with patch('routes.trends.TrendQuery') as mock_query_class:
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
             mock_query.execute.side_effect = Exception("Unexpected DB issue")
