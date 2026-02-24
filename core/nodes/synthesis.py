@@ -6,9 +6,10 @@ def synthesis_node(state: CopilotState) -> CopilotState:
     llm = get_llm()
 
     audience = state.get("audience", "grand public")
-    rag_context = state.get("retrieved_context", "No context available")
-    query_results = state.get("query_results", "No SQL results available")
     messages = state.get("messages", [])
+    
+    business_rules = state.get("business_rules", "No business rules found.")
+    question = state.get("question", "No question found.")
 
     chat_history_text = ""
     for m in messages:
@@ -21,23 +22,30 @@ def synthesis_node(state: CopilotState) -> CopilotState:
     
     system_prompt = f"""
     You are the Synthesis Agent for the Montreal Mobility Copilot.
-    Your task is to synthesize a final answer to the user's question based on the following information:
-    1. RAG CONTEXT : {rag_context}
-    2. SQL RESULTS : {query_results}
-    3. CONVERSATION HISTORY : {chat_history_text}
+    Your task is to write the final analytical report based strictly on the raw data gathered by the Data Agent in the conversation history.
+    If the question has no relevance to mobility, requests 311 or weather in Montreal, say that you cannot answer and stop.
+
+    RAW DATA & RULES:
+    1. BUSINESS RULES & DEFINITIONS: {business_rules}
+    2. GATHERED DATA (History): {chat_history_text}
+
+    The question to answer is: "{question}"
 
     INSTRUCTIONS:
-    1. Use the SQL results as the primary source of factual information to answer the user's question.
-    2. Use the RAG context to provide background information or definitions.SystemError
-    3. Use the conversation history to understand the user's intent and any clarifications that were made.
-    4. STYLE GUIDE: {style_guide}
-    5. Never hallucinate information. If you don't know, say you don't know.
-    6. If weather API results are present, integrate them into the answer in a natural way.
-    7. Don't say 'SQL', 'database', 'dataframe' or any technical term in the final answer. Just use the information to answer the question.
-    8. Speak in the user's language (French or English) based on the conversation history.
+    1. Base your answer ONLY on the data provided in the GATHERED DATA section. 
+    2. Pay special attention to the message starting with "DATA GATHERING COMPLETE".
+    3. TONE & AUDIENCE: {style_guide}
+    4. Never hallucinate information that is not explicitly stated in the gathered data. If you don't have enough information to answer, say "Je n'ai pas assez d'informations pour répondre à cette question." and stop.
+    5. NEVER say 'SQL', 'database', 'dataframe', 'API', or 'Data Agent'. Speak as the primary mobility expert.
+    6. Always reply in French, as this is for the City of Montreal.
     """
 
-    response = llm.invoke([HumanMessage(content=system_prompt)])
+    final_message = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="Based on the above data, generate the final analytical report for the user following the instructions and structure guidelines.")
+    ]
+
+    response = llm.invoke(final_message)
 
     return {
         "messages": [response],
