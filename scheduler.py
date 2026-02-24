@@ -1,0 +1,16 @@
+from services.weekly_report import hebdo_hotspots_briefing_generator
+from apscheduler.schedulers.background import BackgroundScheduler
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+
+    scheduler = BackgroundScheduler()
+
+    scheduler.add_job(hebdo_hotspots_briefing_generator, 'cron', day_of_week='mon', hour=8, minute=0)
+
+    scheduler.start()
+
+    yield
+
+    scheduler.shutdown()
