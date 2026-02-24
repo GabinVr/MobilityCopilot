@@ -228,3 +228,5 @@ db/
 *.old
 .vscode/
 logs/
+
+last_hotspot_report.txt
