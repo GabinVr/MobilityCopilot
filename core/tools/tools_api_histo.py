@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import calendar
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
 from pydantic import BaseModel, Field
@@ -21,7 +21,7 @@ CLIMATE_MONTHLY_ITEMS = f"{GEOMET_BASE}/collections/climate-monthly/items"
 UA = "MobilityCopilot/1.0 (mtl-global-history; geomet)"
 TIMEOUT_S = 25
 
-MAX_PERIODS = 50
+MAX_PERIODS = 15
 
 MTL_REFERENCE = {
     "name": "Montreal (global proxy via reference station)",
@@ -30,6 +30,10 @@ MTL_REFERENCE = {
 }
 
 FREQ_ALIASES = {
+    "day": "day",
+    "daily": "day",
+    "jour": "day",
+    "jours": "day",
     "week": "week",
     "weekly": "week",
     "semaine": "week",
@@ -50,7 +54,7 @@ FREQ_ALIASES = {
 class MTLHistoryGlobalInput(BaseModel):
     start_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
     end_date: Optional[str] = Field(default=None, description="YYYY-MM-DD (defaults to today UTC)")
-    frequency: str = Field(default="month", description="week | month | year (also: semaine | mois | annee)")
+    frequency: str = Field(default="month", description="day | week | month | year (also: jour(s) | semaine | mois | annee)")
 
 
 # =========================
@@ -74,7 +78,7 @@ def _to_float(v: Any) -> Optional[float]:
 def _normalize_freq(freq: str) -> str:
     f = (freq or "").strip().lower()
     if f not in FREQ_ALIASES:
-        raise ValueError(f"Invalid frequency '{freq}'. Use week|month|year (or semaine|mois|annee).")
+        raise ValueError(f"Invalid frequency '{freq}'. Use day|week|month|year (or jour(s)|semaine|mois|annee).")
     return FREQ_ALIASES[f]
 
 def _follow_next_link(payload: Dict[str, Any]) -> Optional[str]:
@@ -99,6 +103,8 @@ def _http_get_json(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
     return data
 
 def _floor_period_start(d: dt.date, freq: str) -> dt.date:
+    if freq == "day":
+        return d
     if freq == "week":
         return d - dt.timedelta(days=d.weekday())
     if freq == "month":
@@ -110,6 +116,8 @@ def _floor_period_start(d: dt.date, freq: str) -> dt.date:
 def _shift_period_start(d: dt.date, freq: str, n: int) -> dt.date:
     if n == 0:
         return d
+    if freq == "day":
+        return d + dt.timedelta(days=n)
     if freq == "week":
         return d + dt.timedelta(days=7 * n)
     if freq == "month":
@@ -126,6 +134,8 @@ def _shift_period_start(d: dt.date, freq: str, n: int) -> dt.date:
     raise ValueError("Unsupported frequency")
 
 def _period_id(pstart: dt.date, freq: str) -> str:
+    if freq == "day":
+        return pstart.isoformat()
     if freq == "week":
         iy, iw, _ = pstart.isocalendar()
         return f"{iy}-W{iw:02d}"
@@ -136,6 +146,8 @@ def _period_id(pstart: dt.date, freq: str) -> str:
     raise ValueError("Unsupported frequency")
 
 def _bucket_end(pstart: dt.date, freq: str) -> dt.date:
+    if freq == "day":
+        return pstart
     if freq == "week":
         return pstart + dt.timedelta(days=6)
     if freq == "month":
@@ -160,7 +172,7 @@ def _round_floats(obj: Any, ndigits: int = 2) -> Any:
         return [_round_floats(v, ndigits) for v in obj]
     return obj
 
-def _infer_effective_start(requested_start: Optional[dt.date], end: dt.date, freq: str) -> Tuple[dt.date, bool]:
+def _infer_effective_start(requested_start: Optional[dt.date], end: dt.date, freq: str) -> tuple[dt.date, bool]:
     """
     Hard-truncate to MAX_PERIODS ending at 'end'.
     Returns (effective_start, truncated_flag).
@@ -260,7 +272,6 @@ def _parse_monthly(feat: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 class Bucket:
     pstart: dt.date
     pend: dt.date
-    n_obs: int = 0
     mean_sum: float = 0.0
     mean_n: int = 0
     min_min: Optional[float] = None
@@ -283,7 +294,6 @@ def _agg_from_daily(dailies: List[Dict[str, Any]], start: dt.date, end: dt.date,
             buckets[pid] = Bucket(pstart=pstart, pend=_bucket_end(pstart, freq))
 
         b = buckets[pid]
-        b.n_obs += 1
 
         mt = r.get("mean_temp_c")
         if isinstance(mt, (int, float)):
@@ -314,7 +324,6 @@ def _agg_from_daily(dailies: List[Dict[str, Any]], start: dt.date, end: dt.date,
             "period_id": pid,
             "start_date": _clamp(b.pstart, start, end).isoformat(),
             "end_date": _clamp(b.pend, start, end).isoformat(),
-            "n_obs": b.n_obs,
             "mean_temp_c": (b.mean_sum / b.mean_n) if b.mean_n else None,
             "min_temp_c": b.min_min,
             "max_temp_c": b.max_max,
@@ -336,7 +345,6 @@ def _agg_from_monthly_to_month(months: List[Dict[str, Any]], start: dt.date, end
             "period_id": pid,
             "start_date": _clamp(pstart, start, end).isoformat(),
             "end_date": _clamp(pend, start, end).isoformat(),
-            "n_obs": 1,
             "mean_temp_c": r.get("mean_temp_c"),
             "min_temp_c": r.get("min_temp_c"),
             "max_temp_c": r.get("max_temp_c"),
@@ -359,7 +367,6 @@ def _agg_from_monthly_to_year(months: List[Dict[str, Any]], start: dt.date, end:
             buckets[y] = Bucket(pstart=dt.date(y, 1, 1), pend=dt.date(y, 12, 31))
 
         b = buckets[y]
-        b.n_obs += 1
 
         mt = r.get("mean_temp_c")
         if isinstance(mt, (int, float)):
@@ -391,7 +398,6 @@ def _agg_from_monthly_to_year(months: List[Dict[str, Any]], start: dt.date, end:
             "period_id": f"{y:04d}",
             "start_date": _clamp(b.pstart, start, end).isoformat(),
             "end_date": _clamp(b.pend, start, end).isoformat(),
-            "n_obs": b.n_obs,
             "mean_temp_c": (b.mean_sum / b.mean_n) if b.mean_n else None,
             "min_temp_c": b.min_min,
             "max_temp_c": b.max_max,
@@ -426,10 +432,10 @@ def geomet_mtl_history_global(start_date: Optional[str] = None, end_date: Option
 
         climate_id = MTL_REFERENCE["climate_identifier"]
 
-        if freq == "week":
+        if freq in ("day", "week"):
             feats = _fetch_features_by_years(CLIMATE_DAILY_ITEMS, climate_id, eff_start.year, end.year, limit=1000)
             dailies = [r for r in (_parse_daily(f) for f in feats) if r is not None]
-            periods = _agg_from_daily(dailies, eff_start, end, "week")
+            periods = _agg_from_daily(dailies, eff_start, end, freq)
 
         else:
             feats = _fetch_features_by_years(CLIMATE_MONTHLY_ITEMS, climate_id, eff_start.year, end.year, limit=1000)
@@ -483,15 +489,19 @@ def geomet_mtl_history_global(start_date: Optional[str] = None, end_date: Option
     except requests.HTTPError as e:
         return {"meta": meta, "error": {"type": "HTTPError", "message": str(e)}}
     except Exception as e:
-        return {"meta": meta, "error": {"type": type(e).__name__, "message": str(e)}}
+        return {"meta": meta, "error": {"type": type(e).__name__, "Tmessage": str(e)}}
 
 
 geomet_mtl_history_global_tool = StructuredTool.from_function(
     func=geomet_mtl_history_global,
     name="geomet_mtl_history_global",
     description=(
-        "Montreal historical climate aggregated by week/month/year with a hard max_periods=50. "
-        "No normals/anomalies. Uses a Montreal reference station (proxy)."
+        "HISTORICAL WEATHER TOOL. Use this tool ONLY to get past weather data for Montreal "
+        "(temperatures, rain, snow). DO NOT USE IT for current weather or future forecasts.\n"
+        "- start_date and end_date MUST be in the exact 'YYYY-MM-DD' format (e.g., '2019-01-15').\n"
+        "- frequency: choose from 'day', 'week', 'month', or 'year'.\n"
+        "WARNING: You can only retrieve up to 50 aggregated periods at once. If the requested date range exceeds this limit, the data will be truncated to the most recent 50 periods."
+        "If you need the weather for a single specific day, set both start_date and end_date to that exact same date and use frequency='day'."
     ),
     args_schema=MTLHistoryGlobalInput,
 )
@@ -500,6 +510,6 @@ if __name__ == "__main__":
     import json
     print(json.dumps(geomet_mtl_history_global_tool.invoke({
         "start_date": "1900-01-01",
-        "end_date": "2026-02-21",
+        "end_date": "2015-02-24",
         "frequency": "year",
     }), indent=2, ensure_ascii=False))
