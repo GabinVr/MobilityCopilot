@@ -10,11 +10,13 @@ from core.nodes.contradictor import contradictor_node
 from core.nodes.rag import rag_node
 from core.tools.tools_api_weather_now import geomet_mtl_weather_text_bundle
 from core.tools.tools_api_histo import geomet_mtl_history_global_tool
+from core.tools.sql_generator import sql_generator_tool
 from core.nodes.validator import execute_sql_node
 
 tools = [
     geomet_mtl_weather_text_bundle,
     geomet_mtl_history_global_tool,
+    sql_generator_tool,
 ]
 
 tool_node = ToolNode(tools=tools)
@@ -28,7 +30,7 @@ def route_after_ambiguity(state: CopilotState):
     
     return "bypass_to_synthesis"
     
-def route_after_generator(state: CopilotState):
+def route_after_data_agent(state: CopilotState):
     messages = state.get("messages", [])
     if not messages:
         return END
@@ -38,16 +40,26 @@ def route_after_generator(state: CopilotState):
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "call_tools"
 
-    if state.get("generated_query"):
-        return "validate_query"
+    if last_message.content and "DATA GATHERING COMPLETE:" in last_message.content:
+        return "proceed_synthesis"
+    
+    if state.get("query_error"):
+        return "loop_back_data_agent"
 
     return "proceed_synthesis"
 
-def route_after_validator(state: CopilotState):
-    if state.get("query_error"):
-        return "data_agent"
+def route_after_tools(state: CopilotState):
     
-    return "synthesis"
+    messages = state.get("messages", [])
+
+    for msg in reversed(messages):
+        if msg.type == "ai":
+            break
+            
+        if msg.type == "tool":
+            if msg.name == "generate_and_validate_sql":
+                return "validator_node"
+    return "data_agent"
 
 workflow = StateGraph(CopilotState)
 
@@ -56,13 +68,11 @@ workflow.add_node("ambiguity_detector", ambiguity_node)
 workflow.add_node("user_interaction", user_interaction_node)
 workflow.add_node("data_agent", data_agent_node)
 workflow.add_node("validator", execute_sql_node)
-workflow.add_node("weather_tools", tool_node)
+workflow.add_node("tools_node", tool_node)
 workflow.add_node("synthesis", synthesis_node)
 workflow.add_node("contradictor", contradictor_node)
 
-
-workflow.set_entry_point("retriever")
-
+workflow.add_edge(START, "retriever")
 workflow.add_edge("retriever", "ambiguity_detector")
 
 workflow.add_conditional_edges("ambiguity_detector", route_after_ambiguity, {
@@ -71,22 +81,21 @@ workflow.add_conditional_edges("ambiguity_detector", route_after_ambiguity, {
     "bypass_to_synthesis": "synthesis"
 })
 
-workflow.add_conditional_edges("data_agent", route_after_generator, {
-    "call_tools": "weather_tools",
+workflow.add_conditional_edges("data_agent", route_after_data_agent, {
+    "call_tools": "tools_node",
     "proceed_synthesis": "synthesis",
-    "validate_query": "validator"
+    "loop_back_data_agent": "data_agent"
 })
 
-
-workflow.add_conditional_edges("validator", route_after_validator, {
-    "data_agent": "data_agent",
-    "synthesis": "synthesis"
+workflow.add_conditional_edges("tools_node", route_after_tools, {
+    "validator_node": "validator",
+    "data_agent": "data_agent"
 })
-
-workflow.add_edge("weather_tools", "data_agent")
-workflow.add_edge("user_interaction", END)
+workflow.add_edge("validator", "data_agent")
 workflow.add_edge("synthesis", "contradictor")
 workflow.add_edge("contradictor", END)
+workflow.add_edge("user_interaction", END)
+
 
 app = workflow.compile()
 
