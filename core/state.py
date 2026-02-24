@@ -8,6 +8,8 @@ class CopilotState(TypedDict):
     # instead of overwriting the history. This is crucial for the chat interface.
     messages: Annotated[List[AnyMessage], add_messages]
     
+    question: str # The original user question, for easy access in all nodes without parsing the message history.
+    
     # Track who we are talking to: "grand_public" vs "municipalite"
     audience: str 
     
@@ -21,7 +23,10 @@ class CopilotState(TypedDict):
 
     # --- 3. RAG Grounding ---
     # Holds the glossary/dataset definitions retrieved to avoid hallucinations.
-    retrieved_context: str
+    database_schema: str
+    querying_tips: str
+    table_descriptions: str
+    business_rules: str
     
     # --- 4. Query Generation & Execution Loop ---
     # The LLM must produce a query (SQL/pandas) and a validator must run it.
