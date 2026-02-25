@@ -2,7 +2,6 @@ import importlib
 import sys
 import types
 from types import SimpleNamespace
-from typing import Any, Sequence
 
 import pytest
 
@@ -51,118 +50,81 @@ def data_agent_module():
     return _import_data_agent_module()
 
 
-def test_strip_llm_wrappers_removes_fences_and_tags(data_agent_module) -> None:
-    raw = """
-    <response>
-    ```sql
-    SELECT id, name FROM stops;
-    ```
-    </response>
-    """
-
-    assert data_agent_module._strip_llm_wrappers(raw) == "SELECT id, name FROM stops;"
-
-
-def test_sanitize_sql_query_accepts_read_only_and_normalizes(data_agent_module) -> None:
-    candidate = "SELECT  id  FROM stops -- comment\nWHERE city = 'Caen';"
-
-    sanitized = data_agent_module._sanitize_sql_query(candidate)
-
-    assert sanitized == "SELECT id FROM stops WHERE city = 'Caen'"
-
-
-@pytest.mark.parametrize(
-    "candidate, expected_message",
-    [
-        ("DROP TABLE stops", "Only read-only SQL queries"),
-        ("SELECT * FROM a; SELECT * FROM b", "Only one SQL statement is allowed"),
-        ("WITH x AS (DELETE FROM t) SELECT * FROM x", "Forbidden SQL keyword"),
-    ],
-)
-def test_sanitize_sql_query_rejects_unsafe_queries(candidate: str, expected_message: str) -> None:
-    data_agent_module = _import_data_agent_module()
-
-    with pytest.raises(ValueError, match=expected_message):
-        data_agent_module._sanitize_sql_query(candidate)
-
-
-def test_data_agent_node_returns_error_when_no_human_message(data_agent_module) -> None:
-    state = {
-        "messages": [SimpleNamespace(type="ai", content="Hello")],
-        "audience": "grand_public",
-        "is_ambiguous": False,
-        "clarification_options": None,
-        "retrieved_context": "",
-        "generated_query": None,
-        "query_results": None,
-        "query_error": None,
-        "analytical_response": None,
-        "contradictor_notes": None,
-    }
-
-    result = data_agent_module.data_agent_node(state)
-
-    assert result["generated_query"] is None
-    assert "No user question found" in result["query_error"]
-
-
-def test_data_agent_node_parses_and_sanitizes_llm_output(
+def test_data_agent_node_binds_tools_and_returns_message(
     monkeypatch: pytest.MonkeyPatch, data_agent_module
 ) -> None:
+    captured = {}
+
     class FakeLLM:
-        def bind_tools(self, _tools: Sequence[Any]):
+        def bind_tools(self, tools, **_kwargs):
+            captured["tools"] = tools
             return self
 
-        def invoke(self, _prompt: Sequence[Any]):
-            return SimpleNamespace(content="<sql>```sql\nSELECT * FROM trips;\n```</sql>", tool_calls=[])
+        def invoke(self, payload):
+            captured["payload"] = payload
+            return SimpleNamespace(content="DATA GATHERING COMPLETE: []", tool_calls=[])
 
     monkeypatch.setattr(data_agent_module, "get_llm", lambda: FakeLLM())
 
     state = {
-        "messages": [SimpleNamespace(type="human", content="Donne moi tous les trajets")],
-        "audience": "grand_public",
-        "is_ambiguous": False,
-        "clarification_options": None,
-        "retrieved_context": "table trips(id, route_name)",
-        "generated_query": None,
-        "query_results": None,
-        "query_error": None,
-        "analytical_response": None,
-        "contradictor_notes": None,
+        "question": "Donne-moi un résumé des collisions",
+        "messages": [SimpleNamespace(type="human", content="Question")],
     }
 
     result = data_agent_module.data_agent_node(state)
 
-    assert result["query_error"] is None
-    assert result["generated_query"] == "SELECT * FROM trips"
+    assert "messages" in result
+    assert result["messages"][0].content == "DATA GATHERING COMPLETE: []"
+    assert len(captured["tools"]) == 3
+    assert len(captured["payload"]) == 2
 
 
-def test_data_agent_node_rejects_unsafe_llm_output(
+def test_data_agent_node_uses_default_question_when_missing(
     monkeypatch: pytest.MonkeyPatch, data_agent_module
 ) -> None:
+    captured = {}
+
     class FakeLLM:
-        def bind_tools(self, _tools: Sequence[Any]):
+        def bind_tools(self, _tools, **_kwargs):
             return self
 
-        def invoke(self, _prompt: Sequence[Any]):
-            return SimpleNamespace(content="```sql\nDELETE FROM trips\n```", tool_calls=[])
+        def invoke(self, payload):
+            captured["payload"] = payload
+            return SimpleNamespace(content="ok", tool_calls=[])
 
     monkeypatch.setattr(data_agent_module, "get_llm", lambda: FakeLLM())
 
     state = {
-        "messages": [SimpleNamespace(type="human", content="Supprime les trajets")],
-        "audience": "municipalite",
-        "is_ambiguous": False,
-        "clarification_options": None,
-        "retrieved_context": "table trips(id, route_name)",
-        "generated_query": None,
-        "query_results": None,
-        "query_error": None,
-        "analytical_response": None,
-        "contradictor_notes": None,
+        "messages": [SimpleNamespace(type="human", content="Analyse")],
     }
 
-    result = data_agent_module.data_agent_node(state)
+    data_agent_module.data_agent_node(state)
 
-    assert result["generated_query"] is None
-    assert "Unsafe or invalid SQL generated" in result["query_error"]
+    system_prompt = captured["payload"][0].content
+    assert "The question to answer is: No question found." in system_prompt
+
+
+def test_data_agent_node_passes_existing_messages_to_llm(
+    monkeypatch: pytest.MonkeyPatch, data_agent_module
+) -> None:
+    captured = {}
+
+    class FakeLLM:
+        def bind_tools(self, _tools, **_kwargs):
+            return self
+
+        def invoke(self, payload):
+            captured["payload"] = payload
+            return SimpleNamespace(content="ok", tool_calls=[])
+
+    monkeypatch.setattr(data_agent_module, "get_llm", lambda: FakeLLM())
+
+    user_msg = SimpleNamespace(type="human", content="Trouve les hotspots")
+    state = {
+        "question": "Trouve les hotspots",
+        "messages": [user_msg],
+    }
+
+    data_agent_module.data_agent_node(state)
+
+    assert captured["payload"][1] is user_msg

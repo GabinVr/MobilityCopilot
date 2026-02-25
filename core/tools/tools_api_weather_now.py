@@ -423,8 +423,11 @@ geomet_mtl_weather_text_bundle = StructuredTool.from_function(
     func=_geomet_mtl_weather_text_bundle,
     name="geomet_mtl_weather_text_bundle",
     description=(
-        "Returns an English, text-first JSON bundle for Montreal mobility use: "
-        "city_now_text + forecast_text (text summaries) + stations_text (one line per fixed station)."
+        "CURRENT WEATHER & FORECAST TOOL. Use this tool ONLY to get the CURRENT weather or prevision for tomorrow,"
+        "active warnings, and short-term forecasts for Montreal right now.\n"
+        "DO NOT USE THIS TOOL if the user asks for historical weather or weather on a past date "
+        "(use 'geomet_mtl_history_global' instead).\n"
+        "This tool takes NO arguments."
     ),
     args_schema=EmptyInput,
 )
