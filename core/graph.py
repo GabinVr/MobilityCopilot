@@ -62,7 +62,8 @@ def route_after_tools(state: CopilotState):
 
 # This function is kept for backwards compatibility.
 def get_langgraph_app():
-    app = build_workflow()
+    workflow = build_workflow()
+    app = workflow.compile()
     return app
 
 def build_workflow():
@@ -101,5 +102,4 @@ def build_workflow():
     workflow.add_edge("contradictor", END)
     workflow.add_edge("user_interaction", END)
 
-    app = workflow.compile()
-    return app
+    return workflow

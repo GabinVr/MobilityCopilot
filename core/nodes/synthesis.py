@@ -7,8 +7,7 @@ from langchain_core.runnables import RunnableConfig
 def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     llm = get_llm()
 
-    # audience = state.get("audience", "grand public") #  --> moved to RunnableConfig
-    audience = config["configurable"]["audience"] 
+    audience = config.get("configurable", {}).get("audience", "grand_public")
     if audience not in ["grand_public", "municipalite"]:
         audience = "grand_public" # default fallback
 
@@ -23,7 +22,7 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
         chat_history_text += f"{role}: {m.content}\n"
 
     style_guide = ("Answer in a clear and concise manner, suitable for a general audience, use simple language and avoid technical jargon. "
-                   if audience == "grand public" else
+                   if audience == "grand_public" else
                    "Answer with precision and technical depth, suitable for a specialized audience, using appropriate terminology and detailed explanations.")
     
     system_prompt = f"""

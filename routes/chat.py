@@ -29,7 +29,10 @@ async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
                                 contradictor_notes=cached[1].text if len(cached) > 1 else None)
 
         thread_id = request.thread_id or str(uuid.uuid4())
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        
+        config: RunnableConfig = {
+            "configurable": {"thread_id": thread_id, "audience": request.audience}
+        }
 
         initial_state = {
             "messages": [HumanMessage(content=request.query)],
@@ -38,9 +41,12 @@ async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
         }
         logger.debug(f"Thread: {thread_id}, Audience: {request.audience}")
         logger.debug(f"Initial state for LangGraph: {initial_state}")
-        final_state = await fastapi_request.app.state.graph.invoke(initial_state, config=config)
+        final_state = await fastapi_request.app.state.graph.ainvoke(initial_state, config=config)
         logger.info(f"Final state from LangGraph: {final_state}")
-        
+        history = [
+            item async for item in fastapi_request.app.state.graph.aget_state_history(config)
+        ]
+        logger.info(f"Thread: {thread_id}, Full history: {history}")
         # Check if the response is ambiguous
         if final_state.get("is_ambiguous"):
             options = final_state.get("clarification_options", [])

@@ -14,25 +14,22 @@ CHECKPOINTS_DB = Path("checkpoints.db") # SQLite file for LangGraph checkpoints,
 async def lifespan(app: FastAPI):
     await init_cache()
 
-    saver = AsyncSqliteSaver.from_conn_string(str(CHECKPOINTS_DB))
-    await saver.setup() 
+    async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINTS_DB)) as saver:
+        workflow = build_workflow()
+        app.state.saver = saver
+        app.state.graph = workflow.compile(checkpointer=saver)  
 
-    workflow = build_workflow()
-    app.state.saver = saver
-    app.state.graph = workflow.compile(saver=saver)  
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(hebdo_hotspots_briefing_generator, 'cron', day_of_week='mon', hour=8, minute=0)
+        scheduler.add_job(update_311_requests, 'cron', hour=3, minute=0)
 
-    scheduler = BackgroundScheduler()
+        scheduler.start()
 
-    scheduler.add_job(hebdo_hotspots_briefing_generator, 'cron', day_of_week='mon', hour=8, minute=0)
-    scheduler.add_job(update_311_requests, 'cron', hour=3, minute=0)
-
-    scheduler.start()
-
-    yield
-
-    scheduler.shutdown()
-    await close_cache()
-    await saver.aclose()
+        try:
+            yield
+        finally:
+            scheduler.shutdown()
+            await close_cache()
 
 
 __all__ = ["lifespan"]
