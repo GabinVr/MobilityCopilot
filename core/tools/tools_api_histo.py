@@ -489,7 +489,7 @@ def geomet_mtl_history_global(start_date: Optional[str] = None, end_date: Option
     except requests.HTTPError as e:
         return {"meta": meta, "error": {"type": "HTTPError", "message": str(e)}}
     except Exception as e:
-        return {"meta": meta, "error": {"type": type(e).__name__, "Tmessage": str(e)}}
+        return {"meta": meta, "error": {"type": type(e).__name__, "message": str(e)}}
 
 
 geomet_mtl_history_global_tool = StructuredTool.from_function(
