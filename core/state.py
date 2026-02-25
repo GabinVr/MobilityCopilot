@@ -11,7 +11,7 @@ class CopilotState(TypedDict):
     question: str # The original user question, for easy access in all nodes without parsing the message history.
     
     # Track who we are talking to: "grand_public" vs "municipalite"
-    audience: str 
+    # audience: str # --> moved to config RunnableConfig since it's more of a session-level parameter than part of the evolving state.
     
     # --- 2. Ambiguity Detection ---
     # To satisfy the requirement to detect fuzzy queries and act on them.

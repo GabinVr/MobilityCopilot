@@ -1,8 +1,8 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from main import api
-from routes.chat import chat_router, langraph
+from routes.chat import chat_router
 from routes.hotspot import hotspot_router
 from services.weekly_report import get_last_hotspot_report, hebdo_hotspots_briefing_generator
 
@@ -23,7 +23,16 @@ from models import (
 @pytest.fixture
 def client():
     """Créer un client de test pour l'API FastAPI."""
-    return TestClient(api)
+    # Mock le graph qui est normalement créé dans le lifespan
+    mock_graph = MagicMock()
+    
+    # Créer le client sans le lifespan
+    with patch('main.lifespan'):
+        from main import api
+        # Ajouter le mock du graph à l'état de l'app
+        api.state.graph = mock_graph
+        client = TestClient(api)
+        yield client
 
 
 class TestChatEndpoint:
@@ -36,20 +45,19 @@ class TestChatEndpoint:
             "audience": "grand_public"
         }
         
-        with patch('routes.chat.langraph.invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "messages": [],
-                "audience": "grand_public",
-                "is_ambiguous": False,
-                "analytical_response": "Il y a eu 150 collisions ce mois-ci."
-            }
-            
-            response = client.post("/chat", json=payload)
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data["answer"] == "Il y a eu 150 collisions ce mois-ci."
-            assert data["is_ambiguous"] is False
+        client.app.state.graph.invoke = AsyncMock(return_value={
+            "messages": [],
+            "audience": "grand_public",
+            "is_ambiguous": False,
+            "analytical_response": "Il y a eu 150 collisions ce mois-ci."
+        })
+        
+        response = client.post("/chat", json=payload)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["answer"] == "Il y a eu 150 collisions ce mois-ci."
+        assert data["is_ambiguous"] is False
     
     def test_chat_endpoint_ambiguous(self, client):
         """Tester l'endpoint /chat avec une requête ambiguë."""
@@ -58,19 +66,18 @@ class TestChatEndpoint:
             "audience": "municipalite"
         }
         
-        with patch('routes.chat.langraph.invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "messages": [],
-                "is_ambiguous": True,
-                "clarification_options": "Voulez-vous parler des collisions, des requêtes 311, ou des perturbations du transport?"
-            }
-            
-            response = client.post("/chat", json=payload)
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data["is_ambiguous"] is True
-            assert "Voulez-vous parler" in data["answer"]
+        client.app.state.graph.invoke = AsyncMock(return_value={
+            "messages": [],
+            "is_ambiguous": True,
+            "clarification_options": "Voulez-vous parler des collisions, des requêtes 311, ou des perturbations du transport?"
+        })
+        
+        response = client.post("/chat", json=payload)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_ambiguous"] is True
+        assert "Voulez-vous parler" in data["answer"]
     
     def test_chat_endpoint_with_contradictor_notes(self, client):
         """Tester l'endpoint /chat avec des notes du contradictor."""
@@ -79,19 +86,18 @@ class TestChatEndpoint:
             "audience": "grand_public"
         }
         
-        with patch('routes.chat.langraph.invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "messages": [],
-                "is_ambiguous": False,
-                "analytical_response": "Selon les données, les collisions ont augmenté de 10%.",
-                "contradictor_notes": "Attention: les données du mois dernier sont incomplètes."
-            }
-            
-            response = client.post("/chat", json=payload)
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data["contradictor_notes"] == "Attention: les données du mois dernier sont incomplètes."
+        client.app.state.graph.invoke = AsyncMock(return_value={
+            "messages": [],
+            "is_ambiguous": False,
+            "analytical_response": "Selon les données, les collisions ont augmenté de 10%.",
+            "contradictor_notes": "Attention: les données du mois dernier sont incomplètes."
+        })
+        
+        response = client.post("/chat", json=payload)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["contradictor_notes"] == "Attention: les données du mois dernier sont incomplètes."
     
     def test_chat_endpoint_error(self, client):
         """Tester l'endpoint /chat avec une erreur."""
@@ -100,12 +106,11 @@ class TestChatEndpoint:
             "audience": "grand_public"
         }
         
-        with patch('routes.chat.langraph.invoke') as mock_invoke:
-            mock_invoke.side_effect = Exception("Erreur du langgraph")
-            
-            response = client.post("/chat", json=payload)
-            
-            assert response.status_code == 500
+        client.app.state.graph.invoke = AsyncMock(side_effect=Exception("Erreur du langgraph"))
+        
+        response = client.post("/chat", json=payload)
+        
+        assert response.status_code == 500
 
 
 class TestWordCloudEndpoint:

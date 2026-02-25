@@ -6,10 +6,12 @@ from typing import Optional, Dict, Any, List
 
 class ChatRequest(BaseModel):
     query: str
+    thread_id: Optional[str] = None
     audience: str = "grand_public" # 'grand_public' or 'municipalite'
     
 class ChatResponse(BaseModel):
     answer: str
+    thread_id: str
     is_ambiguous: bool
     contradictor_notes: str | None = None
 

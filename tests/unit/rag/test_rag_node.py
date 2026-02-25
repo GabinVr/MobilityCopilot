@@ -38,8 +38,8 @@ def test_rag_node_loads_all_documents(monkeypatch: pytest.MonkeyPatch, rag_modul
     class FakeRepository:
         def get_all_documents(self):
             return [
-                SimpleNamespace(page_content="Doc A", metadata={"source": "a"}),
-                SimpleNamespace(page_content="Doc B", metadata={}),
+                SimpleNamespace(page_content="Doc A", metadata={"source": "database_schema"}),
+                SimpleNamespace(page_content="Doc B", metadata={"source": "business_rules"}),
             ]
 
     monkeypatch.setattr(rag_module, "get_repository", lambda: FakeRepository())
@@ -59,6 +59,10 @@ def test_rag_node_loads_all_documents(monkeypatch: pytest.MonkeyPatch, rag_modul
 
     result = rag_module.rag_node(state)
 
-    assert "Doc A" in result["retrieved_context"]
-    assert "Doc B" in result["retrieved_context"]
-    assert "metadata" in result["retrieved_context"]
+    # Le rag_node retourne maintenant un dictionnaire avec des clés spécifiques
+    assert "database_schema" in result
+    assert "business_rules" in result
+    # Vérifier que les documents sont présents dans les bonnes catégories
+    result_str = str(result)
+    assert "Doc A" in result_str
+    assert "Doc B" in result_str

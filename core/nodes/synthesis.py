@@ -1,11 +1,16 @@
 from core.state import CopilotState
 from utils.llm_provider import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 
-def synthesis_node(state: CopilotState) -> CopilotState:
+# def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
+def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     llm = get_llm()
 
-    audience = state.get("audience", "grand public")
+    audience = config.get("configurable", {}).get("audience", "grand_public")
+    if audience not in ["grand_public", "municipalite"]:
+        audience = "grand_public" # default fallback
+
     messages = state.get("messages", [])
     
     business_rules = state.get("business_rules", "No business rules found.")
@@ -17,7 +22,7 @@ def synthesis_node(state: CopilotState) -> CopilotState:
         chat_history_text += f"{role}: {m.content}\n"
 
     style_guide = ("Answer in a clear and concise manner, suitable for a general audience, use simple language and avoid technical jargon. "
-                   if audience == "grand public" else
+                   if audience == "grand_public" else
                    "Answer with precision and technical depth, suitable for a specialized audience, using appropriate terminology and detailed explanations.")
     
     system_prompt = f"""

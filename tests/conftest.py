@@ -24,14 +24,16 @@ def pytest_configure(config):
     patcher_redis_async = patch("redis.asyncio.from_url", return_value=mock_redis_async)
     patcher_semantic_cache = patch("langchain_redis.RedisSemanticCache", return_value=mock_semantic_cache)
     patcher_cache_init = patch("fastapi_cache.FastAPICache.init", return_value=None)
+    patcher_get_semantic_cache = patch("cache.get_semantic_cache", return_value=mock_semantic_cache)
     
     patcher_redis.start()
     patcher_redis_async.start()
     patcher_semantic_cache.start()
     patcher_cache_init.start()
+    patcher_get_semantic_cache.start()
     
     # Store patchers in config for cleanup
-    config._patchers = [patcher_redis, patcher_redis_async, patcher_semantic_cache, patcher_cache_init]
+    config._patchers = [patcher_redis, patcher_redis_async, patcher_semantic_cache, patcher_cache_init, patcher_get_semantic_cache]
 
 
 def pytest_unconfigure(config):

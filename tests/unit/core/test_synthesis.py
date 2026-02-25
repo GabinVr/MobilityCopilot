@@ -41,12 +41,17 @@ def test_synthesis_node_builds_final_response(
 
     state = {
         "messages": [SimpleNamespace(type="human", content="Analyse les données")],
-        "audience": "grand public",
         "retrieved_context": "Contexte RAG",
         "sql_results": "[('A', 10)]",
     }
+    
+    config = {
+        "configurable": {
+            "audience": "grand_public"
+        }
+    }
 
-    result = synthesis_module.synthesis_node(state)
+    result = synthesis_module.synthesis_node(state, config)
 
     assert result["analytical_response"] == "Voici la synthèse finale."
     assert result["messages"][0].content == "Voici la synthèse finale."
@@ -70,11 +75,16 @@ def test_synthesis_node_uses_specialized_style_for_municipalite(
 
     state = {
         "messages": [SimpleNamespace(type="human", content="Besoin de détails techniques")],
-        "audience": "municipalite",
         "retrieved_context": "Contexte",
         "sql_results": "[]",
     }
+    
+    config = {
+        "configurable": {
+            "audience": "municipalite"
+        }
+    }
 
-    synthesis_module.synthesis_node(state)
+    synthesis_module.synthesis_node(state, config)
 
     assert "technical depth" in fake_llm.last_prompt
