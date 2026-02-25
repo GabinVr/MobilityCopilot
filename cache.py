@@ -54,7 +54,6 @@ async def init_cache():
 
 async def close_cache():
     """Close cache connections and cleanup resources on shutdown."""
-    global redis_client_async
     if redis_client_async:
         await redis_client_async.close()
         logger.info("✅ Redis connections closed")
