@@ -27,6 +27,28 @@ def _parse_optional_float(value: Optional[str]) -> Optional[float]:
     except ValueError as exc:
         raise ValueError(f"Expected float value, got: {value!r}") from exc
 
+def get_llm_name() -> str:
+    """Get the name of the active LLM from environment variable."""
+    provider = os.getenv("LLM_PROVIDER", "unknown").lower()
+    if provider == "ollama":
+        model = os.getenv("OLLAMA_MODEL", "unknown_model")
+        return model 
+    if provider == "openai":
+        model = os.getenv("OPENAI_MODEL", "unknown_model")
+        return model
+    if provider == "mistral":
+        model = os.getenv("MISTRAL_MODEL", "unknown_model")
+        return model
+    if provider in ("gemini", "google"):
+        model = os.getenv("GEMINI_MODEL", "unknown_model")
+        return model
+    else:
+        return provider
+
+def get_llm_provider_name() -> str:
+    """Get the name of the active LLM provider from environment variable."""
+    provider = os.getenv("LLM_PROVIDER", "unknown").lower()
+    return provider
 
 def get_llm() -> Any:
     """Return an initialized LangChain chat model from the selected provider."""
