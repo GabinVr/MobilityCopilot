@@ -500,7 +500,7 @@ geomet_mtl_history_global_tool = StructuredTool.from_function(
         "(temperatures, rain, snow). DO NOT USE IT for current weather or future forecasts.\n"
         "- start_date and end_date MUST be in the exact 'YYYY-MM-DD' format (e.g., '2019-01-15').\n"
         "- frequency: choose from 'day', 'week', 'month', or 'year'.\n"
-        "WARNING: You can only retrieve up to 50 aggregated periods at once. If the requested date range exceeds this limit, the data will be truncated to the most recent 50 periods."
+        "WARNING: You can only retrieve up to 15 aggregated periods at once. If the requested date range exceeds this limit, the data will be truncated to the most recent 15 periods."
         "If you need the weather for a single specific day, set both start_date and end_date to that exact same date and use frequency='day'."
     ),
     args_schema=MTLHistoryGlobalInput,
