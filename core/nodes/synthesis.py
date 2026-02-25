@@ -15,6 +15,7 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     
     business_rules = state.get("business_rules", "No business rules found.")
     question = state.get("question", "No question found.")
+    language = state.get("language", "français")
 
     chat_history_text = ""
     for m in messages:
@@ -28,7 +29,8 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     system_prompt = f"""
     You are the Synthesis Agent for the Montreal Mobility Copilot.
     Your task is to write the final analytical report based strictly on the raw data gathered by the Data Agent in the conversation history.
-    If the question has no relevance to mobility, requests 311 or weather in Montreal, say that you cannot answer and stop.
+    You have to answer exclusively questions related to your domain of expertise: \n
+    -Mobility in Montreal, including but not limited to: traffic collisions, potholes, 311 requests, weather impacts on mobility, and related trends.\n
 
     RAW DATA & RULES:
     1. BUSINESS RULES & DEFINITIONS: {business_rules}
@@ -39,13 +41,15 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     STYLE GUIDE:
     {style_guide}
 
+    LANGUAGE:
+    Answer in {language}.
+
     INSTRUCTIONS:
     1. Base your answer ONLY on the data provided in the GATHERED DATA section. 
     2. Pay special attention to the message starting with "DATA GATHERING COMPLETE".
     3. Follow the STYLE GUIDE above for audience adaptation.
     4. Never hallucinate information that is not explicitly stated in the gathered data. If you don't have enough information to answer, say "Je n'ai pas assez d'informations pour répondre à cette question." and stop.
     5. NEVER say 'SQL', 'database', 'dataframe', 'API', or 'Data Agent'. Speak as the primary mobility expert.
-    6. Always reply in French, as this is for the City of Montreal.
     """
 
     final_message = [

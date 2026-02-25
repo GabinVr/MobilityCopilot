@@ -9,7 +9,8 @@ class CopilotState(TypedDict):
     messages: Annotated[List[AnyMessage], add_messages]
     
     question: str # The original user question, for easy access in all nodes without parsing the message history.
-    
+    language: str # Track the user's language for consistent responses.
+
     # Track who we are talking to: "grand_public" vs "municipalite"
     # audience: str # --> moved to config RunnableConfig since it's more of a session-level parameter than part of the evolving state.
     

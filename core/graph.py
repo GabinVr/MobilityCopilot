@@ -36,6 +36,11 @@ def route_after_data_agent(state: CopilotState):
     
     last_message = messages[-1]
 
+    tool_messages_count = sum(1 for m in messages if getattr(m, "type", None) == "tool")
+
+    if tool_messages_count > 15:
+        return "proceed_synthesis"
+
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "call_tools"
 
