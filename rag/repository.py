@@ -1,8 +1,10 @@
 from typing import List
+from utils.llm_provider import get_llm_provider_name
 from rag.corpus_builder import ChromaVectorRepository, CorpusManager, VectorRepository
 from utils.chroma_client import ChromaClient
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 from abc import ABC, abstractmethod
 from typing import Any
@@ -32,10 +34,16 @@ def get_repository() -> VectorRepository:
     COLLECTION_NAME = os.getenv("COLLECTION_NAME", "glossary_corpus")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
-    # If embeddings are huggingface-based, we can directly instantiate them here
-    # for  google-based or other types of embeddings, this part would need to be adapted
-    # TODO: Add support for different types of embeddings based on environment variables
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    if get_llm_provider_name() == "openai":
+        embeddings = OpenAIEmbeddings(
+                model="text-embedding-3-large",
+                # With the `text-embedding-3` class
+                # of models, you can specify the size
+                # of the embeddings you want returned.
+                dimensions=1024
+            )
+    else:
+        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
     return RepositoryFactory.create_chroma_repository(
         host=CHROMA_HOST,
         port=CHROMA_PORT,
