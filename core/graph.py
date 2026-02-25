@@ -108,3 +108,7 @@ def build_workflow():
     workflow.add_edge("user_interaction", END)
 
     return workflow
+
+
+# Module-level export expected by LangGraph config (./core/graph.py:app)
+app = get_langgraph_app()
