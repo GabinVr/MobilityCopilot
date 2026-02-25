@@ -30,19 +30,6 @@ def rag_node(state: CopilotState) -> CopilotState:
             table_desc_docs.append((meta, doc.page_content))
         else:
             pass
-    grouped_chunks = {
-        "database_schema": db_schema_docs,
-        "querying_tips": sql_help_docs,
-        "business_rules": business_docs,
-        "table_descriptions": table_desc_docs
-    }
-
-    sections = []
-    for source in sorted(grouped_chunks.keys()):
-        sections.append(f"[source: {source}]")
-        for meta, content in grouped_chunks[source]:
-            sections.append(f"[metadata: {meta}]\n{content}")
-
 
     return {
         "database_schema": db_schema_docs,

@@ -46,12 +46,12 @@ def execute_sql_node(state: CopilotState) -> CopilotState:
         # On force en string pour éviter les erreurs de type Pylance
         raw_res = db.run(query)
 
-        sucess_message = f"SQL execution successful. Here are the results : \n{raw_res}\n\nIf you have all the information you need, formulate your final answer in plain text. If you need weather data, call the weather tool now. And if you need other SQL data, use the SQL tool again."
+        success_message = f"SQL execution successful. Here are the results : \n{raw_res}\n\nIf you have all the information you need, formulate your final answer in plain text. If you need weather data, call the weather tool now. And if you need other SQL data, use the SQL tool again."
         return { 
             "query_results": str(raw_res), 
             "query_error": None,
             "generated_query": None,
-            "messages": HumanMessage(content=sucess_message)
+            "messages": HumanMessage(content=success_message)
     }
     except Exception as e:
         query_error = str(e)
