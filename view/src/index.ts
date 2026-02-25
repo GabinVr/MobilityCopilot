@@ -307,6 +307,7 @@ const app = new Elysia()
       headers: { Location: "/auth/login" },
     });
     response.headers.set("Set-Cookie", "auth_token=; Path=/; Max-Age=0");
+    response.headers.append("Set-Cookie", "chat_thread_id=; Path=/; Max-Age=0");
     return response;
   })
   .post("/auth/logout", () => {
@@ -315,6 +316,7 @@ const app = new Elysia()
       headers: { Location: "/auth/login" },
     });
     response.headers.set("Set-Cookie", "auth_token=; Path=/; Max-Age=0");
+    response.headers.append("Set-Cookie", "chat_thread_id=; Path=/; Max-Age=0");
     return response;
   })
 
@@ -329,6 +331,8 @@ const app = new Elysia()
     const { message, selectedOption } = body as { message?: string; selectedOption?: string };
     const userType = await resolveUserType(request);
     const audience = userType === "municipality" ? "municipalite" : "grand_public";
+    const cookies = request?.headers.get("cookie") || "";
+    const threadId = getCookieValue(cookies, "chat_thread_id") || undefined;
 
     // Use selectedOption if provided (user clicked on clarification), otherwise use message
     const queryText = selectedOption || message || "";
@@ -345,7 +349,11 @@ const app = new Elysia()
       const response = await fetch(`${BACKEND_API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: queryText, audience }),
+        body: JSON.stringify({
+          query: queryText,
+          audience,
+          thread_id: threadId,
+        }),
       });
 
       if (!response.ok) {
@@ -411,10 +419,19 @@ const app = new Elysia()
         `;
       }
 
-      return new Response(htmlResponse_str, {
+      const chatResponse = new Response(htmlResponse_str, {
         status: 200,
         headers: { "Content-Type": "text/html" },
       });
+
+      if (data?.thread_id) {
+        chatResponse.headers.set(
+          "Set-Cookie",
+          `chat_thread_id=${data.thread_id}; Path=/; HttpOnly; SameSite=Strict`
+        );
+      }
+
+      return chatResponse;
     } catch (error) {
       return new Response(
         `

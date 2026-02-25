@@ -1,14 +1,21 @@
 from core.state import CopilotState
 from utils.llm_provider import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 
-def synthesis_node(state: CopilotState) -> CopilotState:
+# def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
+def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     llm = get_llm()
 
-    audience = state.get("audience", "grand public")
-    rag_context = state.get("retrieved_context", "No context available")
-    sql_results = state.get("sql_results", "No SQL results available")
+    audience = config.get("configurable", {}).get("audience", "grand_public")
+    if audience not in ["grand_public", "municipalite"]:
+        audience = "grand_public" # default fallback
+
     messages = state.get("messages", [])
+    
+    business_rules = state.get("business_rules", "No business rules found.")
+    question = state.get("question", "No question found.")
+    language = state.get("language", "français")
 
     chat_history_text = ""
     for m in messages:
@@ -16,28 +23,43 @@ def synthesis_node(state: CopilotState) -> CopilotState:
         chat_history_text += f"{role}: {m.content}\n"
 
     style_guide = ("Answer in a clear and concise manner, suitable for a general audience, use simple language and avoid technical jargon. "
-                   if audience == "grand public" else
+                   if audience == "grand_public" else
                    "Answer with precision and technical depth, suitable for a specialized audience, using appropriate terminology and detailed explanations.")
     
     system_prompt = f"""
     You are the Synthesis Agent for the Montreal Mobility Copilot.
-    Your task is to synthesize a final answer to the user's question based on the following information:
-    1. RAG CONTEXT : {rag_context}
-    2. SQL RESULTS : {sql_results}
-    3. CONVERSATION HISTORY : {chat_history_text}
+    Your task is to write the final analytical report based strictly on the raw data gathered by the Data Agent in the conversation history.
+    You have to synthesize the information and provide a clear, concise, and accurate answer to the user's question, following the business rules and style guidelines provided.
+    Don't provide information that is not stated in the question and the gathered data.
+    You have to answer exclusively questions related to your domain of expertise: \n
+    -Mobility in Montreal, including but not limited to: traffic collisions, potholes, 311 requests, weather impacts on mobility, and related trends.\n
+
+    RAW DATA & RULES:
+    1. BUSINESS RULES & DEFINITIONS: {business_rules}
+    2. GATHERED DATA (History): {chat_history_text}
+
+    The question to answer is: "{question}"
+
+    STYLE GUIDE:
+    {style_guide}
+
+    LANGUAGE:
+    Answer in {language}.
 
     INSTRUCTIONS:
-    1. Use the SQL results as the primary source of factual information to answer the user's question.
-    2. Use the RAG context to provide background information or definitions.SystemError
-    3. Use the conversation history to understand the user's intent and any clarifications that were made.
-    4. STYLE GUIDE: {style_guide}
-    5. Never hallucinate information. If you don't know, say you don't know.
-    6. If weather API results are present, integrate them into the answer in a natural way.
-    7. Don't say 'SQL', 'database', 'dataframe' or any technical term in the final answer. Just use the information to answer the question.
-    8. Speak in the user's language (French or English) based on the conversation history.
+    1. Base your answer ONLY on the data provided in the GATHERED DATA section. 
+    2. Pay special attention to the message starting with "DATA GATHERING COMPLETE".
+    3. Follow the STYLE GUIDE above for audience adaptation.
+    4. Never hallucinate information that is not explicitly stated in the gathered data. If you don't have enough information to answer, say "Je n'ai pas assez d'informations pour répondre à cette question." and stop.
+    5. NEVER say 'SQL', 'database', 'dataframe', 'API', or 'Data Agent'. Speak as the primary mobility expert.
     """
 
-    response = llm.invoke([HumanMessage(content=system_prompt)])
+    final_message = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="Based on the above data, generate the final analytical report for the user following the instructions and structure guidelines.")
+    ]
+
+    response = llm.invoke(final_message)
 
     return {
         "messages": [response],

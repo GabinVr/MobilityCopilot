@@ -1,6 +1,7 @@
 networks:
-  mobility:
-    driver: bridge
+  mobilitycopilot_net:
+    external: true
+    name: mobilitycopilot_net
 
 volumes:
   chromadb_data:
@@ -11,13 +12,31 @@ volumes:
     driver: local
 
 services:
+  # Redis for caching
+  cache:
+    image: redis:8.6.1
+    networks:
+      - mobilitycopilot_net
+    volumes:
+      - ./cache:/data
+    ports:
+      - "6379:6379"
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+    
   # ChromaDB Vector Database
   chromadb:
     image: chromadb/chroma:1.5.1
     volumes:
       - ./chromadb:/data
     networks:
-      - mobility
+      - mobilitycopilot_net
     ports:
       - "8000:8000"
     healthcheck:
@@ -34,7 +53,7 @@ services:
       dockerfile: Dockerfile
     container_name: mobility_api
     networks:
-      - mobility
+      - mobilitycopilot_net
     volumes:
       - ./data/db:/app/data/db  # SQLite database
       - ./chromadb:/app/chromadb  # ChromaDB data (shared with chromadb service)
@@ -87,7 +106,7 @@ services:
       dockerfile: Dockerfile
     container_name: mobility_web
     networks:
-      - mobility
+      - mobilitycopilot_net
     ports:
       - 3000:3000
     env_file: 

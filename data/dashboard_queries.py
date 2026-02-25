@@ -9,9 +9,18 @@ import re
 import os
 from data.weather_api import MontrealWeatherAPI
 from pathlib import Path
+import logging
+from cache import redis_cache
+
 
 LOCAL_DIR = Path(__file__).parent
 DEFAULT_DB_PATH = os.path.join(LOCAL_DIR, "db/mobility.db")
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 def parse_time_range(time_range: str) -> tuple[str, str]:
     """ 
@@ -64,6 +73,7 @@ class WordCloudQuery311(DashboardQuery):
         super().__init__(db_path)
         self.not_allowed_words = set(["des", "d", "de"])
     
+    @redis_cache(expire=3600*3)
     def execute(self, 
                 top_n: int,
                 time_range: str,
@@ -89,6 +99,7 @@ class WordCloudQuery311(DashboardQuery):
         """
         self.connect()
         cursor = self.conn.cursor()
+        logger.debug(f"Executing WordCloudQuery311 with top_n={top_n} and time_range='{time_range}'")
         # Parse time_range to get start and end dates
         start_date, end_date = parse_time_range(time_range)
         # Execute SQL query to get the relevant service requests
@@ -102,8 +113,9 @@ class WordCloudQuery311(DashboardQuery):
         # We will convert it to a datetime object and filter based on the start and end dates
         df_requests = pd.DataFrame(rows, columns=['ACTI_NOM', 'DDS_DATE_CREATION'])
         # Convert ACTI_NOM to utf-8 and handle any decoding issues
-        df_requests['ACTI_NOM'] = df_requests['ACTI_NOM'].apply(lambda x: x.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore') if isinstance(x, str) else x)
+        # df_requests['ACTI_NOM'] = df_requests['ACTI_NOM'].apply(lambda x: x.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore') if isinstance(x, str) else x)
         df_requests['DDS_DATE_CREATION'] = pd.to_datetime(df_requests['DDS_DATE_CREATION'])
+        logger.debug(f"Total service requests retrieved: {len(df_requests)}")
         df_filtered = df_requests[(df_requests['DDS_DATE_CREATION'] >= start_date) & (df_requests['DDS_DATE_CREATION'] <= end_date)]
         # Count the occurrences of each word in the ACTI_NOM column
         word_counts = {}
@@ -437,14 +449,11 @@ class CollisionHeatMapQuery(DashboardQuery):
         """
         self.connect()
         cursor = self.conn.cursor()
+        logger.debug(f"Executing CollisionHeatMapQuery with time_range='{time_range}', severity_filter={severity_filter}, death_nb={death_nb}, severely_injured_nb={severely_injured_nb}, lightly_injured_nb={lightly_injured_nb}")
         
         # Parse time_range to get start and end dates
         start_date, end_date = parse_time_range(time_range)
-        
-        # Convert dates to YYYY/MM/DD format for SQLite comparison
-        # The database stores dates as YYYY/MM/DD strings
-        start_date_db = start_date.replace('-', '/')
-        end_date_db = end_date.replace('-', '/')
+
         query = """
             SELECT DT_ACCDN, GRAVITE, NB_MORTS, NB_BLESSES_GRAVES, NB_BLESSES_LEGERS, 
                    LOC_LAT, LOC_LONG, NO_SEQ_COLL
@@ -455,7 +464,7 @@ class CollisionHeatMapQuery(DashboardQuery):
               AND LOC_LAT IS NOT NULL
               AND LOC_LONG IS NOT NULL
         """
-        params = [start_date_db, end_date_db]
+        params = [start_date, end_date]
         
         # Add optional filters
         if severity_filter is not None:
@@ -478,6 +487,8 @@ class CollisionHeatMapQuery(DashboardQuery):
         
         cursor.execute(query, params)
         rows = cursor.fetchall()
+        logger.debug(f"Executed SQL query: {query} with params {params}")
+        logger.debug(f"Total collisions retrieved from database: {len(rows)}")
         self.disconnect()
         
         # Process results

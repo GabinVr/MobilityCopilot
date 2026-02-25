@@ -6,53 +6,89 @@ from utils.llm_provider import get_llm
 from pydantic import BaseModel, Field
 
 class AmbiguityOutput(BaseModel):
-    is_ambiguous: bool = Field(description="Indicates if the user's question is ambiguous and requires clarification.")
-    clarification_options: list[str] = Field(description="If the question is ambiguous, this list contains 2-3 hypotheses or options to clarify the user's intent. If not ambiguous, this can be an empty list.")
-    need_external_data: bool = Field(description="True if the question requires external data (e.g., weather with API, historical trends, statistics, 311 request) False if the question can be answered with general knowledge or reasoning without specific data.")
-
+    is_ambiguous: bool = Field(description="True if the question is missing crucial info like a date or specific location to run a precise count. False if it's a ranking, a top, a general trend or if you can find an answer in the database.")
+    clarification_options: list[str] = Field(description="If ambiguous, 2-3 short options in the user's language to clarify. If not, empty list.", default=[])
+    need_external_data: bool = Field(description="True if we need to query the database or weather API. False for greetings or general knowledge.")
+    question: str = Field(description="The original user question.")
+    language: str = Field(description="The user's language, for consistent responses write th complete word (e.g., 'français', 'english', etc.) not just the code (e.g., 'fr', 'en').")
 
 def ambiguity_node(state: CopilotState) -> CopilotState:
     llm = get_llm()
 
-    rag_context = state.get("retrieved_context")
+    business_context = state.get("business_rules", "No business rules found.")
+    dataset_descriptions = state.get("table_descriptions", "No dataset descriptions found.")
     messages = state.get("messages")
+    
+    question = messages[-1].content if messages else ""
 
-    if messages:
-        question = messages[-1].content
-    else:        question = ""
+    history_text = ""
+    for m in messages:
+        role = "Utilisateur" if m.type == "human" else "Assistant"
+        history_text += f"{role}: {m.content}\n"
+
 
     prompt = f"""
-    You are the Ambiguity Detector for the Montreal Mobility Copilot.
-    Your task is to verify if the user's question is precise enough to be translated into a SQL query.
+    You are the Ambiguity Detector Router for the Montreal Mobility Copilot.
+    Your ONLY job is to map the user's question to the correct routing flags.
+    You can find informations in the history of the conversation, the last question can be just a precision or a follow-up, you have to consider the whole history to understand the context of the question and detect ambiguity.
 
-    OFFICIAL GLOSSARY & SCHEMAS (RAG):
-    {rag_context}
+    🚨 RULES (CRITICAL) 🚨
+    If location is missing assume it's for the whole Montreal city.
+    If timeframe is missing, assume it's for all available data.
+    Only flag as ambiguous if the lack of this information would lead to a completely different answer or if the question is too vague to even attempt a database query.
 
-    USER QUESTION:
-    {question}
+    🚨 DOMAINS & DATASETS 🚨
+    {business_context}
+    {dataset_descriptions}
 
-    HISTORY OF CONVERSATION:
-    {messages}
+    🚨 CLASSIFICATION RULES 🚨
+    1. RANKINGS/HOTSPOTS (NEVER AMBIGUOUS): Questions asking for "the most", "top", "worst", "axes", "le plus de" are NEVER ambiguous. They imply a full database scan. Set `is_ambiguous=False` and `need_external_data=True`.
+    2. MISSING PARAMS (AMBIGUOUS): Questions asking for a specific count ("Combien de...") without a timeframe (year/month) or location. Set `is_ambiguous=True`.
+    3. CHAT/BYPASS: Greetings or non-mobility questions. Set `is_ambiguous=False` and `need_external_data=False`.
+    4. WEATHER-311 CORRELATIONS: Questions asking for correlations between weather and 311 requests are NEVER ambiguous because we have a specific algorithm for that. Set `is_ambiguous=False` and `need_external_data=True`.
+    5. WEATHER PREVISIONS: Questions asking for today's weather or prevision for tomorrow are NOT ambiguous. Set `is_ambiguous=False` and `need_external_data=True`.
 
-    INSTRUCTIONS:
-    1. Analyze the user's question in the context of the provided glossary and conversation history.
-    2. Check if the question lacks a specific location, time period, incident type or any other detail that would make it hard to generate a precise query.
-    3. IMPORTANT: If the user is responding to a previous clarification or providing a missing detail, use the history to resolve the ambiguity instead of marking it as ambiguous again.
-    4. If the question is "fuzzy" (e.g., "where are the problems?"), set is_ambiguous to True.
-    5. If ambiguous, use the GLOSSARY to propose 2-3 hypotheses (e.g., "Do you mean 311 pothole requests or severe collisions?").
-    6. If the question is clear and matches categories in the glossary, set is_ambiguous to False.
-    7. If the question is clear but requires specific data to answer (e.g., "How many 311 requests were there last month in downtown?"), set need_external_data to True.
-    8. If the question is clear but requires an API call to get current weather or historical trends, set need_external_data to True.
-    9. If the question is clear and can be answered with general knowledge or reasoning without specific data, set need_external_data to False.
+    ✅ EXAMPLES (YOU MUST FOLLOW THIS LOGIC) ✅
     
+    Question: "Combien de collisions y a-t-il eu ?"
+    Thought: Missing timeframe and location for a specific count.
+    Output: is_ambiguous=True, need_external_data=False
+    
+    Question: "Où y a-t-il le plus de nids-de-poule ?"
+    Thought: Asks for "le plus de" (Ranking/Hotspot). We scan the whole DB. Not ambiguous.
+    Output: is_ambiguous=False, need_external_data=True
+    
+    Question: "Autour de quels axes STM (arrêts/lignes) observe-t-on le plus de collisions graves ?"
+    Thought: Asks for "le plus de" (Ranking/Axes). We will let the SQL agent figure it out. Not ambiguous.
+    Output: is_ambiguous=False, need_external_data=True
+    
+    Question: "Quels sont les signaux faibles aujourd'hui ?"
+    Thought: Business rule term (weak signals) + timeframe (today). Not ambiguous.
+    Output: is_ambiguous=False, need_external_data=True
+
+    Question: "Quels types de requêtes 311 augmentent quand la température passe sous 0°C ?"
+    Thought: Asks for a correlation between weather and 311. We have a specific algorithm for this, but it's not ambiguous because the user is clear about what they want.
+    Output: is_ambiguous=False, need_external_data=True
+
+    Question: Quels secteurs ont une hausse de collisions en conditions de pluie/neige
+    Thought: Asks for a correlation between weather and collisions. We have a specific algorithm for this, but it's not ambiguous because the user is clear about what they want.
+    Output: is_ambiguous=False, need_external_data=True
+
+    USER QUESTION: "{question}"
+
+    CONVERSATION HISTORY:
+    {history_text}
+
+    You also have to detect the user's language for consistent responses.
+
     """
 
     response = llm.with_structured_output(AmbiguityOutput).invoke(prompt)
 
     return {
-    "is_ambiguous": response.is_ambiguous,
-    "clarification_options": response.clarification_options,
-    "need_external_data": response.need_external_data
+        "is_ambiguous": response.is_ambiguous,
+        "clarification_options": response.clarification_options,
+        "need_external_data": response.need_external_data,
+        "question": question,
+        "language": response.language
     }
-
-

@@ -11,10 +11,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:api --reload
 ```
+In the view directory, you can also run the frontend with:
+```bash
+cd view
+bun install
+bun run dev
+```
 ## With Docker
 ```bash
-docker build -t mobilitycopilot:latest .
-docker run -p 8000:8000 mobilitycopilot:latest
+docker compose up --build
 ```
 
 ### Monitor CSV 311 (10 checks/day)
@@ -28,14 +33,13 @@ The watcher stores:
 You can tune frequency with `REQUETES311_CHECKS_PER_DAY` (default: `10`).
 
 ## ENJOY !
-Watch the current API endpoint once the server is running:
-`http://127.0.0.1:8000/docs`
+The frontend should be available at
+`http://127.0.0.1:3000`
 
 # Run tests
 ```bash
 pytest
 ```
-
 
 # File structure
 ```
@@ -43,6 +47,9 @@ mobilitycopilot/
 ├── .env                    # Clés API, configurations, etc.
 ├── requirements.txt        
 ├── main.py                 # FastAPI serveur et routes API UNIQUEMENT ! pas de logique métier ici
+├── routes/                  # Fichiers de routes FastAPI, organisés par domaine fonctionnel (ex: dashboard.py, chat.py...)
+├── services/                # Fichiers de services comme report_service.py
+├── scheduler.py             # Script qui lance les tâches planifiées 
 ├── core/
 │   ├── state.py            # La logique de gestion d'état
 │   ├── graph.py            # Le workflow de raisonnement (le graphe de nœuds)
@@ -54,6 +61,7 @@ mobilitycopilot/
 │   ├── ingest.py           # Script qui ingère les données (CSV, API, etc.) et les stocke dans db.sqlite 
 │   └── db.sqlite           # DB
 ├── tests/                  # Tests unitaires et d'intégration
+├── view/                   # Frontend avec Bun.js (BETH stack)
 └── rag/
     └── corpus_builder.py   # Script qui construit le corpus de RAG
 ```
