@@ -48,6 +48,30 @@ async def init_cache():
         ttl=1800  # 30 mins for chat answers
     )
     
+    # Ensure the Redis search index is created for semantic cache
+    try:
+        await redis_client_async.ping()
+        logger.info("✅ Redis connection verified")
+        
+        # Create the index synchronously using the underlying cache object
+        # This ensures the "llmcache" index exists before any lookups
+        try:
+            if hasattr(semantic_cache.cache, 'create_index'):
+                semantic_cache.cache.create_index(overwrite=False)
+                logger.info("✅ Redis semantic cache index created/verified")
+            else:
+                # Alternative: try to initialize using the index directly
+                semantic_cache.cache._index.create(overwrite=False)
+                logger.info("✅ Redis semantic cache index created/verified (via _index)")
+        except Exception as e:
+            # Index might already exist, which is fine
+            if "WRONGTYPE" not in str(e) and "already exists" not in str(e):
+                logger.debug(f"Index initialization note: {e}")
+            else:
+                logger.info("✅ Redis semantic cache index already exists")
+    except Exception as e:
+        logger.warning(f"⚠️ Warning during Redis index initialization: {e}")
+    
     logger.info("✅ Cache RedisBackend initialized successfully")
     logger.info("✅ HuggingFace embeddings loaded")
     logger.info("✅ Semantic cache initialized")

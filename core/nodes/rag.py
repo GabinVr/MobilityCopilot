@@ -1,15 +1,14 @@
-from datetime import datetime
-
 from core.state import CopilotState
 from rag.repository import get_repository
+from cache import redis_cache
 
 
-def rag_node(state: CopilotState) -> CopilotState:
+@redis_cache(expire=3600)  # Cache for 1 hour (documents rarely change)
+def get_cached_rag_context():
     """
-    Node to load the whole RAG context in the state, 
+    Build and cache the RAG context with only JSON-serializable data.
     """
-    repository = get_repository()
-    documents = repository.get_all_documents()
+    documents = get_repository().get_all_documents()
     db_schema_docs = []
     sql_help_docs = []
     business_docs = []
@@ -28,15 +27,20 @@ def rag_node(state: CopilotState) -> CopilotState:
             business_docs.append((meta, doc.page_content))
         elif source == "dataset_description":
             table_desc_docs.append((meta, doc.page_content))
-        else:
-            pass
 
     return {
         "database_schema": db_schema_docs,
         "querying_tips": sql_help_docs,
         "business_rules": business_docs,
-        "table_descriptions": table_desc_docs
+        "table_descriptions": table_desc_docs,
     }
+
+
+def rag_node(state: CopilotState) -> CopilotState:
+    """
+    Node to load the whole RAG context in the state.
+    """
+    return get_cached_rag_context()
 
 
 
