@@ -79,27 +79,6 @@ services:
       retries: 3
       start_period: 5s
 
-  # 311 CSV monitor: checks for updates 10 times/day
-  requetes311-watcher:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: requetes311_watcher
-    networks:
-      - mobility
-    volumes:
-      - ./data:/app/data
-    environment:
-      - PYTHONUNBUFFERED=1
-      - REQUETES311_URL=https://donnees.montreal.ca/dataset/5866f832-676d-4b07-be6a-e99c21eb17e4/resource/2cfa0e06-9be4-49a6-b7f1-ee9f2363a872/download/requetes311.csv
-      - REQUETES311_TARGET_FILE=/app/data/csv/requetes311.csv
-      - REQUETES311_STATE_FILE=/app/data/db/requetes311_monitor_state.json
-      - REQUETES311_CHECKS_PER_DAY=10
-      - REQUETES311_TIMEOUT_SECONDS=120
-      - REQUETES311_LOG_LEVEL=INFO
-    command: ["python", "data/requetes311_monitor.py"]
-    restart: unless-stopped
-
   web-app:
     build:
       context: ./view

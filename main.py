@@ -5,6 +5,7 @@ from routes.wordcloud import wordcloud_router
 from routes.collision_heatmap import collision_heatmap_router
 from routes.weather_correlation import weather_correlation_router
 from routes.trends import trends_router
+from routes.collision_forecast import collision_forecast_router
 from scheduler import lifespan
 import logging
 
@@ -20,5 +21,5 @@ api.include_router(wordcloud_router)
 api.include_router(collision_heatmap_router)
 api.include_router(weather_correlation_router)
 api.include_router(trends_router)
-
+api.include_router(collision_forecast_router)
 

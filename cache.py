@@ -2,6 +2,7 @@ from redis import asyncio as aioredis
 from redis import Redis
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.decorator import cache as fastapi_cache_decorator
 # from langchain_openai import OpenAIEmbeddings # @TODO: Add support for different types of embeddings based on environment variables
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -30,38 +31,84 @@ redis_client_sync = None
 embeddings = None
 semantic_cache = None
 
+
+class NullSemanticCache:
+    """No-op semantic cache fallback used when Redis or embeddings are unavailable."""
+
+    def lookup(self, *_args, **_kwargs):
+        return None
+
+    def update(self, *_args, **_kwargs):
+        return None
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 async def init_cache():
-    """Initialize cache, embeddings, and semantic cache at startup (lazy initialization)."""
+    """Initialize Redis cache and optional semantic cache with graceful fallbacks."""
     global redis_client_async, redis_client_sync, embeddings, semantic_cache
-    
-    redis_client_async = await aioredis.from_url(REDIS_URL)
-    # Create sync client as well for sync functions (keep as bytes for msgpack serialization)
-    redis_client_sync = Redis.from_url(REDIS_URL, decode_responses=False)
-    FastAPICache.init(RedisBackend(redis_client_async), prefix="fastapi-cache")
-    
-    # Lazy init: embeddings and semantic cache are only downloaded/initialized at startup
-    embeddings = HuggingFaceEmbeddings(model_name=os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
-    semantic_cache = RedisSemanticCache(
-        embeddings=embeddings,
-        redis_url=REDIS_URL,
-        distance_threshold=0.1,
-        ttl=1800  # 30 mins for chat answers
-    )
-    
-    logger.info("✅ Cache RedisBackend initialized successfully")
-    logger.info("✅ HuggingFace embeddings loaded")
-    logger.info("✅ Semantic cache initialized")
+
+    redis_client_async = None
+    redis_client_sync = None
+    embeddings = None
+    semantic_cache = NullSemanticCache()
+
+    try:
+        redis_client_async = await aioredis.from_url(REDIS_URL)
+        # Create sync client as well for sync functions (keep as bytes for msgpack serialization)
+        redis_client_sync = Redis.from_url(REDIS_URL, decode_responses=False)
+        FastAPICache.init(RedisBackend(redis_client_async), prefix="fastapi-cache")
+        logger.info("✅ Cache RedisBackend initialized successfully")
+    except Exception as e:
+        FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+        logger.warning(f"⚠️ Redis unavailable, using in-memory cache backend: {e}")
+
+    semantic_enabled = _env_bool("SEMANTIC_CACHE_ENABLED", default=False)
+    if not semantic_enabled:
+        logger.info("ℹ️ Semantic cache disabled (set SEMANTIC_CACHE_ENABLED=1 to enable)")
+        return
+
+    if redis_client_sync is None:
+        logger.info("ℹ️ Semantic cache disabled because Redis is unavailable")
+        return
+
+    try:
+        embeddings = HuggingFaceEmbeddings(
+            model_name=os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+        )
+        semantic_cache = RedisSemanticCache(
+            embeddings=embeddings,
+            redis_url=REDIS_URL,
+            distance_threshold=0.1,
+            ttl=1800  # 30 mins for chat answers
+        )
+        logger.info("✅ HuggingFace embeddings loaded")
+        logger.info("✅ Semantic cache initialized")
+    except Exception as e:
+        embeddings = None
+        semantic_cache = NullSemanticCache()
+        logger.warning(f"⚠️ Semantic cache disabled (embeddings unavailable): {e}")
 
 async def close_cache():
     """Close cache connections and cleanup resources on shutdown."""
+    global redis_client_async, redis_client_sync
     if redis_client_async:
         await redis_client_async.close()
-        logger.info("✅ Redis connections closed")
+    if redis_client_sync:
+        redis_client_sync.close()
+    redis_client_async = None
+    redis_client_sync = None
+    logger.info("✅ Redis connections closed")
 
 def get_semantic_cache():
-    """Get the semantic cache instance. Must be called after init_cache()."""
+    """Get semantic cache instance (real Redis cache or no-op fallback)."""
     if semantic_cache is None:
-        raise RuntimeError("Semantic cache not initialized. Call init_cache() first.")
+        return NullSemanticCache()
     return semantic_cache
 
 def get_embeddings():
@@ -180,5 +227,3 @@ def custom_key_builder(
 def cache(expire: int):
     """Décorateur de cache qui fonctionne avec les modèles Pydantic."""
     return fastapi_cache_decorator(expire=expire, key_builder=custom_key_builder, namespace="fastapi")
-
-

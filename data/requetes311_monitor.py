@@ -148,6 +148,21 @@ class Requetes311Monitor:
                 )
             raise
 
+    def _fetch_remote_headers_only(self) -> dict[str, str]:
+        """
+        Fetch remote headers with a HEAD request.
+        Used to bootstrap ETag/Last-Modified when we already have a local file.
+        """
+        req = request.Request(self.url, method="HEAD")
+        try:
+            with request.urlopen(req, timeout=self.timeout_seconds) as response:
+                return {key: value for key, value in response.headers.items()}
+        except error.HTTPError as exc:
+            # Some servers do not support HEAD. In that case, caller can fall back.
+            if exc.code in (405, 501):
+                return {}
+            raise
+
     @staticmethod
     def _merge_headers(state: dict[str, Any], headers: dict[str, str]) -> None:
         header_mapping = {
@@ -177,6 +192,18 @@ class Requetes311Monitor:
         if had_local_file and previous_hash is None:
             previous_hash = sha256_file(self.target_file)
             state["sha256"] = previous_hash
+
+        # If we already have the local CSV but no validators yet, bootstrap them
+        # using a lightweight HEAD call to avoid a large initial download.
+        if had_local_file and not state.get("etag") and not state.get("last_modified"):
+            try:
+                head_headers = self._fetch_remote_headers_only()
+                self._merge_headers(state, head_headers)
+            except Exception as exc:
+                LOGGER.warning(
+                    "Failed to bootstrap ETag/Last-Modified with HEAD: %s",
+                    exc,
+                )
 
         conditional_headers = self._build_conditional_headers(state, had_local_file)
 

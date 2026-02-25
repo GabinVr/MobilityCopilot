@@ -16,7 +16,9 @@ from models import (
     WeatherCorrelationRequest,
     WeatherCorrelationResponse,
     TrendRequest,
-    TrendResponse
+    TrendResponse,
+    CollisionForecastJ1Request,
+    CollisionForecastJ1Response,
 )
 
 
@@ -482,3 +484,67 @@ class TestTrendsEndpoint:
             assert response.status_code == 500
             data = response.json()
             assert "Unexpected DB issue" in data["detail"]
+
+
+class TestCollisionForecastJ1Endpoint:
+    """Tests pour l'endpoint /dashboard/collision-forecast-j1."""
+
+    def test_collision_forecast_j1_success(self, client):
+        payload = {"as_of_date": "2021-12-30"}
+        mock_result = {
+            "as_of_date": "2021-12-30",
+            "forecast_date": "2021-12-31",
+            "nb_leger": 14,
+            "nb_grave": 1,
+            "nb_mortel": 0,
+            "model_version": "collision_j1_v1_tuned",
+            "selected_models": {
+                "leger": "baseline_rolling7",
+                "grave": "baseline_rolling7",
+                "mortel": "absolute_base",
+            },
+            "raw_predictions": {
+                "leger": 14.212,
+                "grave": 0.721,
+                "mortel": 0.102,
+            },
+        }
+
+        with patch("routes.collision_forecast.CollisionForecastService") as mock_service_class:
+            mock_service = MagicMock()
+            mock_service_class.return_value = mock_service
+            mock_service.predict_j1.return_value = mock_result
+
+            response = client.post("/dashboard/collision-forecast-j1", json=payload)
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["forecast_date"] == "2021-12-31"
+            assert data["nb_leger"] == 14
+            mock_service.predict_j1.assert_called_once_with(as_of_date="2021-12-30")
+
+    def test_collision_forecast_j1_not_found(self, client):
+        payload = {"model_dir": "data/models/not_found"}
+
+        with patch("routes.collision_forecast.CollisionForecastService") as mock_service_class:
+            mock_service_class.side_effect = FileNotFoundError("Model directory not found")
+
+            response = client.post("/dashboard/collision-forecast-j1", json=payload)
+
+            assert response.status_code == 404
+            data = response.json()
+            assert "Model directory not found" in data["detail"]
+
+    def test_collision_forecast_j1_bad_request(self, client):
+        payload = {"as_of_date": "2029-01-01"}
+
+        with patch("routes.collision_forecast.CollisionForecastService") as mock_service_class:
+            mock_service = MagicMock()
+            mock_service_class.return_value = mock_service
+            mock_service.predict_j1.side_effect = ValueError("as_of_date is after max available date")
+
+            response = client.post("/dashboard/collision-forecast-j1", json=payload)
+
+            assert response.status_code == 400
+            data = response.json()
+            assert "after max available date" in data["detail"]

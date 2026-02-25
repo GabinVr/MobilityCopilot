@@ -74,3 +74,25 @@ class TrendResponse(BaseModel):
     weekly_311_changes: Dict[str, Any]
     weak_signals_311: Dict[str, Any]
     insights: List[str]
+
+
+class CollisionForecastJ1Request(BaseModel):
+    as_of_date: Optional[str] = Field(
+        default=None,
+        description="Date d'observation au format YYYY-MM-DD. Si absent, prend la derniere date disponible.",
+    )
+    model_dir: Optional[str] = Field(
+        default=None,
+        description="Dossier des artefacts modele. Si absent, resolution auto.",
+    )
+
+
+class CollisionForecastJ1Response(BaseModel):
+    as_of_date: str
+    forecast_date: str
+    nb_leger: int
+    nb_grave: int
+    nb_mortel: int
+    model_version: str
+    selected_models: Dict[str, str]
+    raw_predictions: Dict[str, float]

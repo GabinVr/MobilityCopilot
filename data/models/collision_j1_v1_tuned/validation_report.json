@@ -1,0 +1,327 @@
+{
+  "model_dir": "data/models/collision_j1_v1_tuned",
+  "generated_at_utc": "2026-02-25T16:21:24.788955+00:00",
+  "data": {
+    "n_rows_total": 3617,
+    "n_rows_train": 3252,
+    "n_rows_test": 365,
+    "date_min": "2012-02-05",
+    "date_max": "2021-12-30",
+    "train_date_min": "2012-02-05",
+    "train_date_max": "2020-12-30",
+    "test_date_min": "2020-12-31",
+    "test_date_max": "2021-12-30"
+  },
+  "config": {
+    "db_path": "data/db/mobility.db",
+    "output_dir": "data/models/collision_j1_v1_tuned",
+    "climate_identifier": "7025251",
+    "start_date": "2012-01-01",
+    "end_date": "2021-12-31",
+    "eval_days": 365,
+    "inner_eval_days": 240,
+    "random_state": 42,
+    "weather_csv": null
+  },
+  "targets": {
+    "leger": {
+      "selected_candidate": "baseline_rolling7",
+      "validation_top": [
+        {
+          "name": "baseline_rolling7",
+          "mae": 3.4258,
+          "rmse": 4.3366
+        },
+        {
+          "name": "absolute_base",
+          "mae": 3.9075,
+          "rmse": 4.7942
+        },
+        {
+          "name": "poisson_slow",
+          "mae": 4.0931,
+          "rmse": 5.0079
+        }
+      ],
+      "test_predictors": {
+        "model": {
+          "regression": {
+            "mae": 3.2607,
+            "rmse": 4.1322,
+            "bias": -0.0254,
+            "wape": 0.2937,
+            "r2": 0.3318,
+            "mape_non_zero": 0.4186,
+            "mae_non_zero": 3.2607,
+            "sum_true": 4052.0,
+            "sum_pred": 4042.7143
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.1944
+          }
+        },
+        "baseline_weekday": {
+          "regression": {
+            "mae": 3.8575,
+            "rmse": 4.9196,
+            "bias": -0.0493,
+            "wape": 0.3475,
+            "r2": 0.0529,
+            "mape_non_zero": 0.4506,
+            "mae_non_zero": 3.8575,
+            "sum_true": 4052.0,
+            "sum_pred": 4034.0
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.3333
+          }
+        },
+        "baseline_rolling7": {
+          "regression": {
+            "mae": 3.2607,
+            "rmse": 4.1322,
+            "bias": -0.0254,
+            "wape": 0.2937,
+            "r2": 0.3318,
+            "mape_non_zero": 0.4186,
+            "mae_non_zero": 3.2607,
+            "sum_true": 4052.0,
+            "sum_pred": 4042.7143
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.1944
+          }
+        }
+      }
+    },
+    "grave": {
+      "selected_candidate": "baseline_rolling7",
+      "validation_top": [
+        {
+          "name": "baseline_weekday",
+          "mae": 0.5111,
+          "rmse": 0.8746
+        },
+        {
+          "name": "baseline_rolling7",
+          "mae": 0.521,
+          "rmse": 0.6794
+        },
+        {
+          "name": "poisson_base",
+          "mae": 0.5747,
+          "rmse": 0.7018
+        }
+      ],
+      "test_predictors": {
+        "model": {
+          "regression": {
+            "mae": 0.4129,
+            "rmse": 0.6042,
+            "bias": 0.0067,
+            "wape": 1.4354,
+            "r2": -0.0677,
+            "mape_non_zero": 0.6755,
+            "mae_non_zero": 0.8723,
+            "sum_true": 105.0,
+            "sum_pred": 107.4286
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.0833
+          },
+          "event": {
+            "threshold": 0.5,
+            "precision": 0.303,
+            "recall": 0.2353,
+            "f1": 0.2649,
+            "specificity": 0.8357,
+            "balanced_accuracy": 0.5355,
+            "accuracy": 0.6959,
+            "event_rate_true": 0.2329,
+            "event_rate_pred": 0.1808
+          }
+        },
+        "baseline_weekday": {
+          "regression": {
+            "mae": 0.4356,
+            "rmse": 0.7816,
+            "bias": 0.0082,
+            "wape": 1.5143,
+            "r2": -0.7869,
+            "mape_non_zero": 0.8167,
+            "mae_non_zero": 1.0,
+            "sum_true": 105.0,
+            "sum_pred": 108.0
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.1389
+          },
+          "event": {
+            "threshold": 0.5,
+            "precision": 0.2841,
+            "recall": 0.2941,
+            "f1": 0.289,
+            "specificity": 0.775,
+            "balanced_accuracy": 0.5346,
+            "accuracy": 0.663,
+            "event_rate_true": 0.2329,
+            "event_rate_pred": 0.2411
+          }
+        },
+        "baseline_rolling7": {
+          "regression": {
+            "mae": 0.4129,
+            "rmse": 0.6042,
+            "bias": 0.0067,
+            "wape": 1.4354,
+            "r2": -0.0677,
+            "mape_non_zero": 0.6755,
+            "mae_non_zero": 0.8723,
+            "sum_true": 105.0,
+            "sum_pred": 107.4286
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.0833
+          },
+          "event": {
+            "threshold": 0.5,
+            "precision": 0.303,
+            "recall": 0.2353,
+            "f1": 0.2649,
+            "specificity": 0.8357,
+            "balanced_accuracy": 0.5355,
+            "accuracy": 0.6959,
+            "event_rate_true": 0.2329,
+            "event_rate_pred": 0.1808
+          }
+        }
+      }
+    },
+    "mortel": {
+      "selected_candidate": "absolute_base",
+      "validation_top": [
+        {
+          "name": "absolute_base",
+          "mae": 0.0792,
+          "rmse": 0.2905
+        },
+        {
+          "name": "poisson_base",
+          "mae": 0.1099,
+          "rmse": 0.29
+        },
+        {
+          "name": "baseline_rolling7",
+          "mae": 0.1468,
+          "rmse": 0.2994
+        }
+      ],
+      "test_predictors": {
+        "model": {
+          "regression": {
+            "mae": 0.0712,
+            "rmse": 0.277,
+            "bias": -0.0712,
+            "wape": 1.0,
+            "r2": -0.0708,
+            "mape_non_zero": 1.0,
+            "mae_non_zero": 1.04,
+            "sum_true": 26.0,
+            "sum_pred": 0.0
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.3889
+          },
+          "event": {
+            "threshold": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "specificity": 1.0,
+            "balanced_accuracy": 0.5,
+            "accuracy": 0.9315,
+            "event_rate_true": 0.0685,
+            "event_rate_pred": 0.0
+          }
+        },
+        "baseline_weekday": {
+          "regression": {
+            "mae": 0.137,
+            "rmse": 0.3846,
+            "bias": 0.0,
+            "wape": 1.9231,
+            "r2": -1.0652,
+            "mape_non_zero": 0.96,
+            "mae_non_zero": 1.0,
+            "sum_true": 26.0,
+            "sum_pred": 26.0
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.2778
+          },
+          "event": {
+            "threshold": 0.5,
+            "precision": 0.04,
+            "recall": 0.04,
+            "f1": 0.04,
+            "specificity": 0.9294,
+            "balanced_accuracy": 0.4847,
+            "accuracy": 0.8685,
+            "event_rate_true": 0.0685,
+            "event_rate_pred": 0.0685
+          }
+        },
+        "baseline_rolling7": {
+          "regression": {
+            "mae": 0.1323,
+            "rmse": 0.2879,
+            "bias": -0.0,
+            "wape": 1.8571,
+            "r2": -0.1567,
+            "mape_non_zero": 0.9286,
+            "mae_non_zero": 0.9657,
+            "sum_true": 26.0,
+            "sum_pred": 26.0
+          },
+          "top_k_recall": {
+            "k": 36,
+            "k_ratio": 0.1,
+            "recall": 0.0
+          },
+          "event": {
+            "threshold": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "specificity": 1.0,
+            "balanced_accuracy": 0.5,
+            "accuracy": 0.9315,
+            "event_rate_true": 0.0685,
+            "event_rate_pred": 0.0
+          }
+        }
+      }
+    }
+  },
+  "aggregate_mean_wape": {
+    "model": 0.9097,
+    "baseline_rolling7": 1.1954,
+    "baseline_weekday": 1.2616
+  }
+}
