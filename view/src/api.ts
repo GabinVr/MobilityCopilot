@@ -123,17 +123,81 @@ export class ApiClient {
  */
 export class ChatApi {
   private client: ApiClient;
+  private threadId?: string;
 
   constructor(client: ApiClient) {
     this.client = client;
+    this.loadThreadId();
+  }
+
+  /**
+   * Load thread ID from localStorage if available
+   */
+  private loadThreadId() {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chat_thread_id");
+      if (saved) {
+        this.threadId = saved;
+      }
+    }
+  }
+
+  /**
+   * Save thread ID to localStorage
+   */
+  private saveThreadId() {
+    if (typeof window !== "undefined" && this.threadId) {
+      localStorage.setItem("chat_thread_id", this.threadId);
+    }
+  }
+
+  /**
+   * Get current thread ID
+   */
+  getThreadId(): string | undefined {
+    return this.threadId;
+  }
+
+  /**
+   * Set thread ID explicitly (useful for continuing existing conversations)
+   */
+  setThreadId(threadId: string) {
+    this.threadId = threadId;
+    this.saveThreadId();
+  }
+
+  /**
+   * Clear thread ID (start new conversation)
+   */
+  clearThreadId() {
+    this.threadId = undefined;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("chat_thread_id");
+    }
   }
 
   /**
    * Send chat message
-   * Note: Frontend proxy at /api/chat handles parameter mapping to backend
+   * Automatically manages thread_id: first message has no thread_id,
+   * subsequent messages include it from previous responses
    */
-  async sendMessage(message: string, userType: string) {
-    return this.client.post("/api/chat", { message, userType });
+  async sendMessage(query: string, audience: string = "grand_public") {
+    const payload: any = { query, audience };
+    
+    // Include thread_id if we have one from a previous response
+    if (this.threadId) {
+      payload.thread_id = this.threadId;
+    }
+
+    const response = await this.client.post("/chat", payload);
+
+    // Extract and store thread_id from response for next message
+    if (response && response.thread_id) {
+      this.threadId = response.thread_id;
+      this.saveThreadId();
+    }
+
+    return response;
   }
 
   /**

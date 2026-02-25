@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, List
 
 class ChatRequest(BaseModel):
     query: str
-    thread_id: str
+    thread_id: Optional[str] = None
     audience: str = "grand_public" # 'grand_public' or 'municipalite'
     
 class ChatResponse(BaseModel):

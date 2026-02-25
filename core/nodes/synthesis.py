@@ -1,15 +1,14 @@
 from core.state import CopilotState
 from utils.llm_provider import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
-# from langchain_core.runnables import RunnableConfig
-from langgraph import get_config
+from langchain_core.runnables import RunnableConfig
 
 # def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
-def synthesis_node(state: CopilotState) -> CopilotState:
+def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     llm = get_llm()
 
     # audience = state.get("audience", "grand public") #  --> moved to RunnableConfig
-    audience = get_config()["configurable"]["audience"] 
+    audience = config["configurable"]["audience"] 
     if audience not in ["grand_public", "municipalite"]:
         audience = "grand_public" # default fallback
 

@@ -1,11 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from langchain_core.messages import HumanMessage
 from langchain_core.outputs import Generation
 from langchain_core.runnables import RunnableConfig
 import uuid
 import logging  
 from models import ChatRequest, ChatResponse
-from core.graph import get_langgraph_app
 from fastapi import HTTPException
 from cache import get_semantic_cache
 import os
@@ -16,11 +15,10 @@ load_dotenv()
 logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
 
-langraph = get_langgraph_app()
 chat_router = APIRouter()
 
 @chat_router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
     try:
         # WARNING: This caching logic does not take into account the audience !
         cached = get_semantic_cache().lookup(request.query, llm_string="copilot") # TODO: Make llm_string dynamic based on environment variable or request parameter for future support of multiple LLMs
@@ -29,15 +27,18 @@ async def chat_endpoint(request: ChatRequest):
                                 thread_id=request.thread_id or str(uuid.uuid4()),
                                 is_ambiguous=False,
                                 contradictor_notes=cached[1].text if len(cached) > 1 else None)
-        initial_state = {
-            "messages": [HumanMessage(content=request.query)],
-            "audience": request.audience,
-            "is_ambiguous": False
-        }
+
         thread_id = request.thread_id or str(uuid.uuid4())
         config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+
+        initial_state = {
+            "messages": [HumanMessage(content=request.query)],
+            # "audience": request.audience,
+            "is_ambiguous": False
+        }
+        logger.debug(f"Thread: {thread_id}, Audience: {request.audience}")
         logger.debug(f"Initial state for LangGraph: {initial_state}")
-        final_state = langraph.invoke(initial_state, config=config)
+        final_state = await fastapi_request.app.state.graph.invoke(initial_state, config=config)
         logger.info(f"Final state from LangGraph: {final_state}")
         
         # Check if the response is ambiguous
