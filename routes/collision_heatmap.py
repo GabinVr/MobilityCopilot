@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException
+from cache import cache
 from data.dashboard_queries import CollisionHeatMapQuery
 from models import CollisionHeatMapRequest, CollisionHeatMapResponse
 
 collision_heatmap_router = APIRouter()
 
 @collision_heatmap_router.post("/dashboard/collision-heatmap", response_model=CollisionHeatMapResponse)
+@cache(expire=3600*3)
 async def collision_heatmap_endpoint(request: CollisionHeatMapRequest):
     """
     Obtenir les données des collisions pour une visualisation de heatmap.

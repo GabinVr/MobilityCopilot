@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException
+from cache import cache
 from data.dashboard_queries import WordCloudQuery311
 from models import WordCloudRequest, WordCloudResponse
 
 wordcloud_router = APIRouter()
 
 @wordcloud_router.post("/dashboard/wordcloud-311", response_model=WordCloudResponse)
+@cache(expire=3600*3)
 async def wordcloud_311_endpoint(request: WordCloudRequest):
     """
     Obtenir les mots les plus courants des requêtes 311 durant une période donnée.

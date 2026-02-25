@@ -10,6 +10,7 @@ import os
 from data.weather_api import MontrealWeatherAPI
 from pathlib import Path
 import logging
+from cache import redis_cache
 
 
 LOCAL_DIR = Path(__file__).parent
@@ -72,6 +73,7 @@ class WordCloudQuery311(DashboardQuery):
         super().__init__(db_path)
         self.not_allowed_words = set(["des", "d", "de"])
     
+    @redis_cache(expire=3600*3)
     def execute(self, 
                 top_n: int,
                 time_range: str,

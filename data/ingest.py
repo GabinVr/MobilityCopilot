@@ -351,6 +351,189 @@ class SQLiteDatabaseWriter(DatabaseWriter):
         self.conn.commit()
 
 
+# ==========================================================================
+# APPEND WRITER (Incremental updates)
+# ==========================================================================
+
+class SQLiteAppendWriter:
+    """Écrit les données en append sans supprimer la table existante."""
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+        self.conn = None
+
+    def __enter__(self):
+        self.conn = sqlite3.connect(self.db_path)
+        return self
+
+    def __exit__(self, *args):
+        if self.conn:
+            self.conn.close()
+
+    def write(self, table_name: str, df: pd.DataFrame) -> None:
+        if self.conn is None:
+            raise RuntimeError("SQLiteAppendWriter not opened with context manager")
+
+        self._ensure_table(table_name, df)
+        df.to_sql(table_name, self.conn, if_exists="append", index=False)
+        self.conn.commit()
+
+    def _ensure_table(self, table_name: str, df: pd.DataFrame) -> None:
+        if not table_exists(self.conn, table_name):
+            self._create_table(table_name, df)
+            return
+
+        existing_cols = get_table_columns(self.conn, table_name)
+        missing = [col for col in df.columns if col not in existing_cols]
+        if not missing:
+            return
+
+        cursor = self.conn.cursor()
+        for col in missing:
+            dtype = map_dtype(df[col].dtype)
+            cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col}" {dtype}')
+        self.conn.commit()
+
+    def _create_table(self, table_name: str, df: pd.DataFrame) -> None:
+        cursor = self.conn.cursor()
+        columns_sql = []
+        for col in df.columns:
+            dtype = map_dtype(df[col].dtype)
+            columns_sql.append(f'"{col}" {dtype}')
+        create_sql = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({", ".join(columns_sql)})'
+        cursor.execute(create_sql)
+        self.conn.commit()
+
+
+def map_dtype(dtype) -> str:
+    if pd.api.types.is_integer_dtype(dtype):
+        return "INTEGER"
+    if pd.api.types.is_float_dtype(dtype):
+        return "REAL"
+    return "TEXT"
+
+
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+
+def get_table_columns(conn: sqlite3.Connection, table_name: str) -> List[str]:
+    cursor = conn.cursor()
+    cursor.execute(f'PRAGMA table_info("{table_name}")')
+    return [row[1] for row in cursor.fetchall()]
+
+
+def get_default_db_path() -> str:
+    return os.getenv("MOBILITY_DB_PATH", "data/db/mobility.db")
+
+
+class Requetes311Store:
+    """Persist and de-duplicate 311 requests data in SQLite."""
+
+    def __init__(self, db_path: Optional[str] = None, table_name: str = "requetes311"):
+        self.db_path = db_path or get_default_db_path()
+        self.table_name = table_name
+
+    def append_new_rows(self, df: pd.DataFrame) -> int:
+        if df.empty:
+            return 0
+
+        with SQLiteAppendWriter(self.db_path) as writer:
+            if "ID_UNIQUE" not in df.columns:
+                writer.write(self.table_name, df)
+                return len(df)
+
+            writer._ensure_table(self.table_name, df)
+            if self._ensure_unique_index(writer.conn):
+                return self._insert_or_ignore(writer.conn, df)
+
+            existing_ids = self._fetch_existing_ids_for_incoming(
+                writer.conn,
+                df["ID_UNIQUE"].dropna().unique().tolist(),
+            )
+            if existing_ids:
+                df = df[~df["ID_UNIQUE"].isin(existing_ids)]
+
+            if df.empty:
+                return 0
+
+            writer.write(self.table_name, df)
+            return len(df)
+
+    def _ensure_unique_index(self, conn: sqlite3.Connection) -> bool:
+        if not table_exists(conn, self.table_name):
+            return False
+
+        columns = get_table_columns(conn, self.table_name)
+        if "ID_UNIQUE" not in columns:
+            return False
+
+        index_name = f"uniq_{self.table_name}_id_unique"
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                f'CREATE UNIQUE INDEX IF NOT EXISTS "{index_name}" '
+                f'ON "{self.table_name}"("ID_UNIQUE") '
+                'WHERE "ID_UNIQUE" IS NOT NULL'
+            )
+            conn.commit()
+            return True
+        except sqlite3.Error:
+            return False
+
+    def _insert_or_ignore(self, conn: sqlite3.Connection, df: pd.DataFrame) -> int:
+        temp_table = f"{self.table_name}_incoming"
+        df.to_sql(temp_table, conn, if_exists="replace", index=False)
+
+        columns_sql = ", ".join(f'"{col}"' for col in df.columns)
+        insert_sql = (
+            f'INSERT OR IGNORE INTO "{self.table_name}" ({columns_sql}) '
+            f'SELECT {columns_sql} FROM "{temp_table}"'
+        )
+
+        before = conn.total_changes
+        cursor = conn.cursor()
+        cursor.execute(insert_sql)
+        cursor.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
+        conn.commit()
+        return conn.total_changes - before
+
+    def _fetch_existing_ids_for_incoming(
+        self,
+        conn: sqlite3.Connection,
+        incoming_ids: List[Any],
+        chunk_size: int = 1000,
+    ) -> set:
+        if not incoming_ids:
+            return set()
+        if not table_exists(conn, self.table_name):
+            return set()
+
+        columns = get_table_columns(conn, self.table_name)
+        if "ID_UNIQUE" not in columns:
+            return set()
+
+        existing_ids: set = set()
+        cursor = conn.cursor()
+        for start in range(0, len(incoming_ids), chunk_size):
+            chunk = incoming_ids[start : start + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            query = (
+                f'SELECT ID_UNIQUE FROM "{self.table_name}" '
+                f'WHERE ID_UNIQUE IN ({placeholders})'
+            )
+            cursor.execute(query, chunk)
+            existing_ids.update(row[0] for row in cursor.fetchall() if row[0] is not None)
+
+        return existing_ids
+
+
 # ============================================================================
 # ORCHESTRATOR
 # ============================================================================

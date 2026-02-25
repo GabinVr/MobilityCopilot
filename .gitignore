@@ -230,3 +230,5 @@ db/
 logs/
 
 last_hotspot_report.txt
+
+cache/
