@@ -120,7 +120,10 @@ class Requetes311SyncService:
         logger.info("Starting 311 sync")
         csv_url = self.scraper.find_latest_csv_url(dataset_url)
 
-        tmp_path = os.path.join(tempfile.gettempdir(), f"requetes311_.csv")
+        # Use a unique temporary file to avoid conflicts in concurrent runs
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".csv", prefix="requetes311_")
+        tmp_path = tmp_file.name
+        tmp_file.close()  # Close the file handle but keep the file
     
         try:
             logger.info("Downloading 311 CSV", extra={"url": csv_url})

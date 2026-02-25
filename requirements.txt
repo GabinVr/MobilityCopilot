@@ -24,6 +24,7 @@ langsmith==0.7.6
 langchain-chroma>=1.1.0,<2.0.0
 langchain-redis==0.2.5
 redis==7.1.1
+msgpack>=1.1.2
 aioredis>=2.0
 apscheduler
 datetime

@@ -3,7 +3,7 @@ from services.update311 import update_311_requests
 from fastapi import FastAPI
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
-from cache import init_cache
+from cache import init_cache, close_cache
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,3 +19,4 @@ async def lifespan(app: FastAPI):
     yield
 
     scheduler.shutdown()
+    await close_cache()

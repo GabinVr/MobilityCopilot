@@ -5,7 +5,7 @@ import logging
 from models import ChatRequest, ChatResponse
 from core.graph import get_langgraph_app
 from fastapi import HTTPException
-from cache import semantic_cache
+from cache import get_semantic_cache
 import os
 from dotenv import load_dotenv
 
@@ -21,7 +21,7 @@ chat_router = APIRouter()
 async def chat_endpoint(request: ChatRequest):
     try:
         # WARNING: This caching logic does not take into account the audience !
-        cached = semantic_cache.lookup(request.query, llm_string="copilot") # TODO: Make llm_string dynamic based on environment variable or request parameter for future support of multiple LLMs
+        cached = get_semantic_cache().lookup(request.query, llm_string="copilot") # TODO: Make llm_string dynamic based on environment variable or request parameter for future support of multiple LLMs
         if cached:
             return ChatResponse(answer=cached[0].text, is_ambiguous=False)
         initial_state = {
@@ -48,7 +48,7 @@ async def chat_endpoint(request: ChatRequest):
         contradictor_notes = final_state.get("contradictor_notes")
         
         logger.info(f"Normal response: {analytical_response[:100]}...")
-        semantic_cache.update(request.query, 
+        get_semantic_cache().update(request.query, 
                               llm_string="copilot", 
                               return_val=[Generation(text=analytical_response)])
         return ChatResponse(
