@@ -21,9 +21,16 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     
     question = messages[-1].content if messages else ""
 
+    history_text = ""
+    for m in messages:
+        role = "Utilisateur" if m.type == "human" else "Assistant"
+        history_text += f"{role}: {m.content}\n"
+
+
     prompt = f"""
     You are the Ambiguity Detector Router for the Montreal Mobility Copilot.
     Your ONLY job is to map the user's question to the correct routing flags.
+    You can find informations in the history of the conversation, the last question can be just a precision or a follow-up, you have to consider the whole history to understand the context of the question and detect ambiguity.
 
     🚨 RULES (CRITICAL) 🚨
     If location is missing assume it's for the whole Montreal city.
@@ -68,6 +75,10 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     Output: is_ambiguous=False, need_external_data=True
 
     USER QUESTION: "{question}"
+
+    CONVERSATION HISTORY:
+    {history_text}
+
     You also have to detect the user's language for consistent responses.
 
     """
