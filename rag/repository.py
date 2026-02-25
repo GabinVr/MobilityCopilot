@@ -9,7 +9,10 @@ from dotenv import load_dotenv
 from abc import ABC, abstractmethod
 from typing import Any
 import os
+import logging
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class RepositoryFactory():
     @staticmethod
@@ -42,8 +45,12 @@ def get_repository() -> VectorRepository:
                 # of the embeddings you want returned.
                 dimensions=1024
             )
+        COLLECTION_NAME = COLLECTION_NAME + "_openai"
+        EMBEDDING_MODEL = "text-embedding-3-large"
     else:
         embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+        COLLECTION_NAME = COLLECTION_NAME + "_hf"
+    logger.info(f"Chroma repository configured with host={CHROMA_HOST}, port={CHROMA_PORT}, collection_name={COLLECTION_NAME}, embedding_model={EMBEDDING_MODEL}")
     return RepositoryFactory.create_chroma_repository(
         host=CHROMA_HOST,
         port=CHROMA_PORT,
