@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
-
+from langgraph.checkpoint.memory import InMemorySaver
 from core.state import CopilotState
 from core.nodes.ambiguity_detector import ambiguity_node
 from core.nodes.data_agent import data_agent_node
@@ -96,8 +96,9 @@ workflow.add_edge("synthesis", "contradictor")
 workflow.add_edge("contradictor", END)
 workflow.add_edge("user_interaction", END)
 
+memory = InMemorySaver()
 
-app = workflow.compile()
+app = workflow.compile(checkpointer=memory)
 
 def get_langgraph_app():
     return app
