@@ -1,4 +1,4 @@
-from services.weekly_report import hebdo_hotspots_briefing_generator
+from services.weekly_report import hebdo_weekly_report_generator
 from services.update311 import update_311_requests
 from core.graph import build_workflow
 from fastapi import FastAPI
@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
         app.state.graph = workflow.compile(checkpointer=saver)  
 
         scheduler = BackgroundScheduler()
-        scheduler.add_job(hebdo_hotspots_briefing_generator, 'cron', day_of_week='mon', hour=8, minute=0)
+        scheduler.add_job(hebdo_weekly_report_generator, 'cron', day_of_week='mon', hour=8, minute=0)
         scheduler.add_job(update_311_requests, 'cron', hour=3, minute=0)
 
         scheduler.start()
