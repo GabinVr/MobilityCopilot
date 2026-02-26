@@ -21,10 +21,11 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     
     question = messages[-1].content if messages else ""
 
-    history_text = ""
-    for m in messages:
-        role = "Utilisateur" if m.type == "human" else "Assistant"
-        history_text += f"{role}: {m.content}\n"
+    questions_history = state.get("questions_history", [])
+    questions_history = questions_history + [question] if question else questions_history
+    questions_history = questions_history[-5:]
+
+    history_text = "\n".join([f"- {q}" for q in questions_history])
 
 
     prompt = f"""
@@ -74,21 +75,23 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     Thought: Asks for a correlation between weather and collisions. We have a specific algorithm for this, but it's not ambiguous because the user is clear about what they want.
     Output: is_ambiguous=False, need_external_data=True
 
-    USER QUESTION: "{question}"
+    USER LAST QUESTION: "{question}"
 
-    CONVERSATION HISTORY:
+    Recent CONVERSATION HISTORY:
     {history_text}
+
+    Focus on the USER LAST QUESTION but use the conversation history for context.
 
     You also have to detect the user's language for consistent responses.
 
     """
 
     response = llm.with_structured_output(AmbiguityOutput).invoke(prompt)
-
     return {
         "is_ambiguous": response.is_ambiguous,
         "clarification_options": response.clarification_options,
         "need_external_data": response.need_external_data,
         "question": question,
-        "language": response.language
+        "language": response.language,
+        "questions_history": questions_history,
     }

@@ -11,7 +11,7 @@ from core.tools.tools_api_weather_now import geomet_mtl_weather_text_bundle
 from core.tools.tools_api_histo import geomet_mtl_history_global_tool
 from core.tools.sql_generator import sql_generator_tool
 from core.nodes.validator import execute_sql_node
-
+from core.nodes.memory_cleaning import memory_cleaning_node
 tools = [
     geomet_mtl_weather_text_bundle,
     geomet_mtl_history_global_tool,
@@ -82,6 +82,8 @@ def build_workflow():
     workflow.add_node("tools_node", tool_node)
     workflow.add_node("synthesis", synthesis_node)
     workflow.add_node("contradictor", contradictor_node)
+    workflow.add_node("memory_cleaning", memory_cleaning_node)
+
 
     workflow.add_edge(START, "retriever")
     workflow.add_edge("retriever", "ambiguity_detector")
@@ -104,11 +106,10 @@ def build_workflow():
     })
     workflow.add_edge("validator", "data_agent")
     workflow.add_edge("synthesis", "contradictor")
-    workflow.add_edge("contradictor", END)
+    workflow.add_edge("contradictor", "memory_cleaning")
+    workflow.add_edge("memory_cleaning", END)
     workflow.add_edge("user_interaction", END)
 
     return workflow
 
-
-# Module-level export expected by LangGraph config (./core/graph.py:app)
 app = get_langgraph_app()
