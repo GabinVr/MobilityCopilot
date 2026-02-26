@@ -805,22 +805,42 @@ function processNewChatMessages() {
   aiMessages.forEach((messageDiv) => {
     messageDiv.dataset.processed = "true";
     
+    // Extract thread_id from response and store in hidden input
+    const threadId = messageDiv.dataset.threadId;
+    if (threadId) {
+      const hiddenInput = document.getElementById("chat-thread-id");
+      if (hiddenInput) {
+        hiddenInput.value = threadId;
+      }
+    }
+    
     // Process markdown in message content
-    const messageContent = messageDiv.querySelector(".message-content:not(.loading-dots)");
-    if (messageContent && messageContent.textContent) {
+    const markdownSource = messageDiv.querySelector(".markdown-source");
+    const markdownRendered = messageDiv.querySelector(".markdown-rendered");
+    
+    if (markdownSource && markdownRendered && markdownSource.textContent) {
       try {
-        // Parse markdown and sanitize
-        const marked = window.marked;
+        // Resolve the correct marked.parse function (handles different UMD export shapes)
+        const markedLib = window.marked;
         const DOMPurify = window.DOMPurify;
+        const parseFn = markedLib
+          ? (markedLib.parse ? markedLib.parse.bind(markedLib) : (markedLib.marked ? markedLib.marked.parse.bind(markedLib.marked) : null))
+          : null;
         
-        if (marked && DOMPurify) {
-          const htmlContent = marked.parse(messageContent.textContent);
+        if (parseFn && DOMPurify) {
+          // .textContent already decodes HTML entities, no need to unescape manually
+          const rawMarkdown = markdownSource.textContent;
+          const htmlContent = parseFn(rawMarkdown);
           const cleanHtml = DOMPurify.sanitize(htmlContent);
-          messageContent.innerHTML = cleanHtml;
+          markdownRendered.innerHTML = cleanHtml;
+        } else {
+          // Fallback: show raw text with line breaks
+          markdownRendered.innerHTML = markdownSource.textContent.replace(/\n/g, '<br>');
         }
       } catch (error) {
         console.error("Error processing markdown:", error);
-        // Keep original text on error
+        // Keep original text on error, with line breaks
+        markdownRendered.innerHTML = markdownSource.textContent.replace(/\n/g, '<br>');
       }
     }
     

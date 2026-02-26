@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 // Environment variables
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
-const BACKEND_API_URL = (process.env.BACKEND_API_URL || "http://localhost:1337").replace(/\/$/, "");
+const BACKEND_API_URL = (process.env.BACKEND_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
 // Check if Supabase is configured
 const isSupabaseConfigured = SUPABASE_URL && SUPABASE_ANON_KEY && 
@@ -328,11 +328,13 @@ const app = new Elysia()
 
   // API Routes for Chat/Dashboard updates
   .post("/api/chat", async ({ body, request }) => {
-    const { message, selectedOption } = body as { message?: string; selectedOption?: string };
+    const { message, selectedOption, thread_id: bodyThreadId } = body as { message?: string; selectedOption?: string; thread_id?: string };
     const userType = await resolveUserType(request);
     const audience = userType === "municipality" ? "municipalite" : "grand_public";
     const cookies = request?.headers.get("cookie") || "";
-    const threadId = getCookieValue(cookies, "chat_thread_id") || undefined;
+    const cookieThreadId = getCookieValue(cookies, "chat_thread_id") || undefined;
+    // Use body thread_id as fallback if cookie is not available
+    const threadId = cookieThreadId || bodyThreadId || undefined;
 
     // Use selectedOption if provided (user clicked on clarification), otherwise use message
     const queryText = selectedOption || message || "";
@@ -409,10 +411,14 @@ const app = new Elysia()
           ? `<div class="warning-note">⚠️ ${data.contradictor_notes}</div>` 
           : "";
         
+        // Escape HTML entities to prevent XSS in raw markdown
+        const escapedAnswer = answer.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
         htmlResponse_str += `
-          <div class="chat-message ai">
+          <div class="chat-message ai" data-thread-id="${data.thread_id || ''}">
             <div class="message-content">
-              ${answer.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}
+              <div class="markdown-source" style="display:none;">${escapedAnswer}</div>
+              <div class="markdown-rendered"></div>
               ${notes}
             </div>
           </div>
@@ -472,7 +478,7 @@ const app = new Elysia()
       ? { startDate: startDateParam, endDate: endDateParam }
       : timeRangeToDates(timeRange);
 
-    const [heatmapRes] = await Promise.all([
+    const [heatmapRes, weatherRes] = await Promise.all([
       fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -482,18 +488,32 @@ const app = new Elysia()
             : timeRange,
           severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
         }),
-      })
-      ]);
+      }),
+      fetch(`${BACKEND_API_URL}/dashboard/weather-correlation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start_date: dateRange.startDate,
+          end_date: dateRange.endDate,
+          frequency: "week",
+        }),
+      }),
+    ]);
 
     let heatmapData = null;
-    //  let weatherCorrelation = null; // Not needed anymore
+    let weatherCorrelation = null;
 
     if (heatmapRes.ok) {
       heatmapData = await heatmapRes.json();
     }
 
+    if (weatherRes.ok) {
+      weatherCorrelation = await weatherRes.json();
+    }
+
     return {
       heatmapData,
+      weatherCorrelation,
       userType: resolvedUserType,
     };
   })
@@ -540,101 +560,6 @@ const app = new Elysia()
         JSON.stringify({ message: "Erreur backend" }),
         {
           status: 502,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-  })
-
-  // Trends endpoint
-  .get("/api/trends/:userType", async ({ params, request }) => {
-    const resolvedUserType = await resolveUserType(request);
-    const { userType } = params as { userType: "public" | "municipality" };
-
-    if (userType !== resolvedUserType) {
-      return new Response(
-        JSON.stringify({ message: "Forbidden" }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const url = new URL(request.url);
-    const asOfDate = url.searchParams.get("as_of_date") || new Date().toISOString().split("T")[0];
-
-    try {
-      const response = await fetch(`${BACKEND_API_URL}/dashboard/trends`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          as_of_date: asOfDate,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Trends data request failed");
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error("Error loading trends data:", error);
-      return new Response(
-        JSON.stringify({ error: "Failed to load trends data" }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-  })
-
-  // Weekly reports endpoint - proxies PDF download from backend
-  .get("/api/weekly-reports/:userType", async ({ params, request }) => {
-    const resolvedUserType = await resolveUserType(request);
-    const { userType } = params as { userType: "public" | "municipality" };
-
-    if (userType !== resolvedUserType) {
-      return new Response(
-        JSON.stringify({ message: "Forbidden" }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const url = new URL(request.url);
-    const language = url.searchParams.get("language") || "fr";
-
-    try {
-      const response = await fetch(
-        `${BACKEND_API_URL}/last_weekly_report?language=${encodeURIComponent(language)}`,
-        {
-          method: "GET",
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Weekly report request failed");
-      }
-
-      // Proxy the response directly (PDF file)
-      const buffer = await response.arrayBuffer();
-      return new Response(buffer, {
-        status: response.status,
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="weekly_report_${language}.pdf"`,
-        },
-      });
-    } catch (error) {
-      console.error("Error downloading weekly report:", error);
-      return new Response(
-        JSON.stringify({ error: "Failed to download weekly report" }),
-        {
-          status: 500,
           headers: { "Content-Type": "application/json" },
         }
       );
@@ -772,8 +697,8 @@ function BaseLayout(
     <title>MobilityCopilot</title>
     <script src="/public/js/language.js"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://unpkg.com/marked@14.1.1"></script>
-    <script src="https://unpkg.com/dompurify@3.0.9"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@14.1.1/lib/marked.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
     <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <link rel="stylesheet" href="/public/css/style.css">
@@ -977,6 +902,7 @@ function DashboardPage(userType: "public" | "municipality") {
 
         <div class="chat-input-area">
           <form id="chat-form" hx-post="/api/chat" hx-target="#chat-history" hx-swap="beforeend" class="chat-form">
+            <input type="hidden" name="thread_id" id="chat-thread-id" value="" />
             <input 
               type="text" 
               name="message" 
@@ -1038,6 +964,13 @@ function DashboardPage(userType: "public" | "municipality") {
             </div>
           </div>
 
+          <!-- Card 2: Weather Correlation -->
+          <div class="dashboard-card weather-card">
+            <h3>Corrélation Météo</h3>
+            <div id="weather-chart-container" class="chart-container">
+              <div class="placeholder">Chargement du graphique...</div>
+            </div>
+          </div>
 
           <!-- Card 3: Word Cloud -->
           <div class="dashboard-card wordcloud-card">

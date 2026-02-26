@@ -15,7 +15,8 @@
     "@supabase/supabase-js": "latest",
     "elysia": "latest",
     "esbuild": "^0.27.3",
-    "htmx.org": "latest"
+    "htmx.org": "latest",
+    "marked": "^17.0.3"
   },
   "devDependencies": {
     "bun-types": "latest",
