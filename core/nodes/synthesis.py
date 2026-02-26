@@ -33,6 +33,12 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     Don't provide information that is not stated in the question and the gathered data.
     You have to answer exclusively questions related to your domain of expertise: \n
     -Mobility in Montreal, including but not limited to: traffic collisions, potholes, 311 requests, weather impacts on mobility, and related trends.\n
+    You MUST cite the sources of your information using these links as references when relevant.
+    https://donnees.montreal.ca/dataset/requete-311
+    https://www.donneesquebec.ca/recherche/dataset/vmtl-collisions-routieres
+    https://www.stm.info/fr/a-propos/developpeurs/description-des-donneesdisponibles
+    And for weather data: 
+    
 
     RAW DATA & RULES:
     1. BUSINESS RULES & DEFINITIONS: {business_rules}
