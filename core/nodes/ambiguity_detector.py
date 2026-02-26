@@ -48,6 +48,13 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     3. CHAT/BYPASS: Greetings or non-mobility questions. Set `is_ambiguous=False` and `need_external_data=False`.
     4. WEATHER-311 CORRELATIONS: Questions asking for correlations between weather and 311 requests are NEVER ambiguous because we have a specific algorithm for that. Set `is_ambiguous=False` and `need_external_data=True`.
     5. WEATHER PREVISIONS: Questions asking for today's weather or prevision for tomorrow are NOT ambiguous. Set `is_ambiguous=False` and `need_external_data=True`.
+    6. PREDICTION FOR ACCIDENTS: Questions asking for a prediction of a number of accidents for today and tomorrow are NOT ambiguous. Set `is_ambiguous=False` and `need_external_data=True`.
+
+    CLARIFICATION OPTIONS (IF AMBIGUOUS):
+    If the question is ambiguous, provide 2-3 short and clear clarification options in the user's language to help them specify their question. For example, if the question is "Combien de collisions y a-t-il eu ?", the options could be:
+    1. "Combien de collisions y a-t-il eu en 2023 ?"
+    2. "Combien de collisions y a-t-il eu dans l'arrondissement X ?"
+    3. "Combien de collisions y a-t-il eu le mois dernier ?"
 
     ✅ EXAMPLES (YOU MUST FOLLOW THIS LOGIC) ✅
     

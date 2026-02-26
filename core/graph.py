@@ -10,12 +10,15 @@ from core.nodes.rag import rag_node
 from core.tools.tools_api_weather_now import geomet_mtl_weather_text_bundle
 from core.tools.tools_api_histo import geomet_mtl_history_global_tool
 from core.tools.sql_generator import sql_generator_tool
+from core.tools.accidents_predictor import accidents_predictor_tool
+
 from core.nodes.validator import execute_sql_node
 from core.nodes.memory_cleaning import memory_cleaning_node
 tools = [
     geomet_mtl_weather_text_bundle,
     geomet_mtl_history_global_tool,
     sql_generator_tool,
+    accidents_predictor_tool,
 ]
 
 tool_node = ToolNode(tools=tools)

@@ -28,22 +28,16 @@ def execute_sql_node(state: CopilotState) -> CopilotState:
 
     query = sql_query
     
-    # --- Gestion du chemin Robuste ---
-    # On remonte de core/nodes/ vers la racine pour atteindre data/db/
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(current_dir))
     db_path = os.path.join(project_root, "data", "db", "mobility.db")
 
     if not query:
-        # On évite d'écraser tout le state, on ne renvoie que les changements
         return {"query_error": "Requête vide ou non générée."}
 
     try:
-        # 1. Connexion (Utilise l'URI absolue avec 4 slashs pour SQLite sur certains OS)
         db = SQLDatabase.from_uri(f"sqlite:///{db_path}")
         
-        # 2. Exécution
-        # On force en string pour éviter les erreurs de type Pylance
         raw_res = db.run(query)
 
         success_message = f"SQL execution successful. Here are the results : \n{raw_res}\n\nIf you have all the information you need, formulate your final answer in plain text. If you need weather data, call the weather tool now. And if you need other SQL data, use the SQL tool again."

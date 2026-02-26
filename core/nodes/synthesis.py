@@ -3,13 +3,12 @@ from utils.llm_provider import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-# def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
 def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     llm = get_llm()
 
     audience = config.get("configurable", {}).get("audience", "grand_public")
     if audience not in ["grand_public", "municipalite"]:
-        audience = "grand_public" # default fallback
+        audience = "grand_public"
 
     messages = state.get("messages", [])
     
@@ -33,7 +32,9 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     Don't provide information that is not stated in the question and the gathered data.
     You have to answer exclusively questions related to your domain of expertise: \n
     -Mobility in Montreal, including but not limited to: traffic collisions, potholes, 311 requests, weather impacts on mobility, and related trends.\n
-    You MUST cite the sources of your information using these links as references when relevant.
+    You MUST NOT answer questions that are not related to this domain. If the question is outside of your domain, say "Je suis désolé, mais je ne peux répondre qu'à des questions liées à la mobilité à Montréal." and stop.
+    By the way, you can answer to questions like "hello", "what can you do?", "merci" etc but always keep in mind that your primary function is to provide analytical insights based on the data.
+    You MUST cite the sources of your information using these links as references when you use data from them:
     https://donnees.montreal.ca/dataset/requete-311
     https://www.donneesquebec.ca/recherche/dataset/vmtl-collisions-routieres
     https://www.stm.info
@@ -56,7 +57,7 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     1. Base your answer ONLY on the data provided in the GATHERED DATA section. 
     2. Pay special attention to the message starting with "DATA GATHERING COMPLETE".
     3. Follow the STYLE GUIDE above for audience adaptation.
-    4. Never hallucinate information that is not explicitly stated in the gathered data. If you don't have enough information to answer, say "Je n'ai pas assez d'informations pour répondre à cette question." and stop.
+    4. Never hallucinate information that is not explicitly stated in the gathered data. If you don't have enough information to answer, say "Je n'ai pas assez d'informations pour répondre à cette question." (in {language}) and stop.
     5. NEVER say 'SQL', 'database', 'dataframe', 'API', or 'Data Agent'. Speak as the primary mobility expert.
     """
 
