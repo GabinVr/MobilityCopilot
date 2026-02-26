@@ -81,13 +81,12 @@ def ambiguity_node(state: CopilotState) -> CopilotState:
     {history_text}
 
     Focus on the USER LAST QUESTION but use the conversation history for context.
-    
+
     You also have to detect the user's language for consistent responses.
 
     """
 
     response = llm.with_structured_output(AmbiguityOutput).invoke(prompt)
-    print(questions_history)
     return {
         "is_ambiguous": response.is_ambiguous,
         "clarification_options": response.clarification_options,

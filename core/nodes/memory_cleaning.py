@@ -4,8 +4,6 @@ from core.state import CopilotState
 
 def memory_cleaning_node(state: CopilotState) -> CopilotState:
     messages = state.get("messages", [])
-    print("messages before cleaning:")
-    print(messages)
     
     if len(messages) < 2:
         return {}
@@ -46,5 +44,4 @@ def memory_cleaning_node(state: CopilotState) -> CopilotState:
                 messages_to_remove.append(RemoveMessage(id=msg.id))
     
 
-    print(f"🧹 Nettoyage de la mémoire : {len(messages_to_remove)} messages supprimés.")
     return {"messages": messages_to_remove}
