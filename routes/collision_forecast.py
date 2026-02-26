@@ -14,12 +14,12 @@ collision_forecast_router = APIRouter()
 @cache(expire=3600)
 async def collision_forecast_j1_endpoint(request: CollisionForecastJ1Request):
     """
-    Predire le nombre de collisions J+1 (leger, grave, mortel)
-    a l'echelle de toute la zone couverte par la BD.
+    Predire le nombre total de collisions
+    pour une date cible, a l'echelle de toute la zone couverte par la BD.
     """
     try:
         service = CollisionForecastService(model_dir=request.model_dir)
-        result = service.predict_j1(as_of_date=request.as_of_date)
+        result = service.predict_for_date(target_date=request.target_date)
         return CollisionForecastJ1Response(**result)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

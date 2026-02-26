@@ -11,7 +11,6 @@ import pandas as pd
 
 
 DEFAULT_MODELS_ROOT = Path("data/models")
-TARGETS = ["leger", "grave", "mortel"]
 EVENT_TARGETS = {"grave", "mortel"}
 
 
@@ -115,7 +114,7 @@ def _discover_model_dirs(root: Path) -> List[Path]:
             continue
         summary_path = path / "training_summary.json"
         pred_path = path / "test_predictions.csv"
-        if summary_path.exists() and pred_path.exists() and path.name.startswith("collision_j1_"):
+        if summary_path.exists() and pred_path.exists() and path.name.startswith("collision_"):
             candidates.append(path)
     return candidates
 
@@ -123,11 +122,18 @@ def _discover_model_dirs(root: Path) -> List[Path]:
 def _predictor_columns(df: pd.DataFrame, target: str) -> List[Tuple[str, str]]:
     ordered = [
         ("model", f"{target}_pred"),
-        ("baseline_weekday", f"{target}_baseline_weekday"),
-        ("baseline_rolling7", f"{target}_baseline_rolling7"),
-        ("baseline_legacy", f"{target}_baseline"),
+        ("baseline_calendar", f"{target}_baseline_calendar"),
+        ("baseline_global", f"{target}_baseline_global"),
     ]
     return [(name, col) for name, col in ordered if col in df.columns]
+
+
+def _discover_targets(preds: pd.DataFrame) -> List[str]:
+    targets = []
+    for col in preds.columns:
+        if col.endswith("_true") and len(col) > len("_true"):
+            targets.append(col[: -len("_true")])
+    return sorted(set(targets))
 
 
 def _validation_top(summary: Dict[str, Any], target: str, top_n: int = 3) -> List[Dict[str, Any]]:
@@ -153,9 +159,10 @@ def build_report_for_model_dir(model_dir: Path, top_k_ratio: float) -> Dict[str,
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     preds = pd.read_csv(pred_path)
+    targets = _discover_targets(preds)
 
     target_reports: Dict[str, Any] = {}
-    for target in TARGETS:
+    for target in targets:
         true_col = f"{target}_true"
         if true_col not in preds.columns:
             continue
@@ -180,9 +187,13 @@ def build_report_for_model_dir(model_dir: Path, top_k_ratio: float) -> Dict[str,
         }
 
     aggregate_wape = {}
-    for predictor in ["model", "baseline_rolling7", "baseline_weekday", "baseline_legacy"]:
+    for predictor in [
+        "model",
+        "baseline_calendar",
+        "baseline_global",
+    ]:
         predictor_wapes = []
-        for target in TARGETS:
+        for target in targets:
             target_blob = (target_reports.get(target) or {}).get("test_predictors") or {}
             if predictor in target_blob:
                 predictor_wapes.append(target_blob[predictor]["regression"]["wape"])
@@ -194,6 +205,7 @@ def build_report_for_model_dir(model_dir: Path, top_k_ratio: float) -> Dict[str,
         "generated_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
         "data": summary.get("data"),
         "config": summary.get("config"),
+        "target_names": targets,
         "targets": target_reports,
         "aggregate_mean_wape": aggregate_wape,
     }
@@ -215,7 +227,8 @@ def _print_report(report: Dict[str, Any]) -> None:
         summary_text = " | ".join([f"{name}={value:.4f}" for name, value in ordered])
         print(f"Aggregate mean WAPE (lower is better): {summary_text}")
 
-    for target in TARGETS:
+    targets = sorted((report.get("targets") or {}).keys())
+    for target in targets:
         target_blob = (report.get("targets") or {}).get(target) or {}
         if not target_blob:
             continue
@@ -287,7 +300,7 @@ def _write_flat_csv(report: Dict[str, Any], output_path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate validation/test report for collision J+1 model artifacts."
+        description="Generate validation/test report for collision-by-date model artifacts."
     )
     parser.add_argument(
         "--models-root",

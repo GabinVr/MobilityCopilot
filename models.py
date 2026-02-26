@@ -77,9 +77,9 @@ class TrendResponse(BaseModel):
 
 
 class CollisionForecastJ1Request(BaseModel):
-    as_of_date: Optional[str] = Field(
+    target_date: Optional[str] = Field(
         default=None,
-        description="Date d'observation au format YYYY-MM-DD. Si absent, prend la derniere date disponible.",
+        description="Date cible a predire au format YYYY-MM-DD. Si absent, utilise demain.",
     )
     model_dir: Optional[str] = Field(
         default=None,
@@ -88,11 +88,10 @@ class CollisionForecastJ1Request(BaseModel):
 
 
 class CollisionForecastJ1Response(BaseModel):
-    as_of_date: str
-    forecast_date: str
-    nb_leger: int
-    nb_grave: int
-    nb_mortel: int
+    target_date: str
+    nb_collisions: int
     model_version: str
-    selected_models: Dict[str, str]
-    raw_predictions: Dict[str, float]
+    selected_model: str
+    raw_prediction: float
+    weather_source: str
+    weather_history_days: int

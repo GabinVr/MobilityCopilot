@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import sqlite3
+import sys
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,18 +15,21 @@ import numpy as np
 import pandas as pd
 import requests
 
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from data.collision_forecast_models import CalendarBaselineModel, ConstantModel, WeightedBlendModel
 
 GEOMET_BASE = "https://api.weather.gc.ca"
 CLIMATE_DAILY_ITEMS = f"{GEOMET_BASE}/collections/climate-daily/items"
 GEOMET_MAX_PAGES = 200
 GEOMET_TIMEOUT_S = 30
-GEOMET_USER_AGENT = "MobilityCopilot/1.0 (collision-forecast-training)"
+GEOMET_USER_AGENT = "MobilityCopilot/1.0 (collision-total-training)"
 
-DEFAULT_CLIMATE_IDENTIFIER = "7025251"  # Montreal/Trudeau reference station
+DEFAULT_CLIMATE_IDENTIFIER = "7025251"  # Montreal/Trudeau
 DEFAULT_DB_PATH = Path("data/db/mobility.db")
-DEFAULT_OUTPUT_DIR = Path("data/models/collision_j1_v1")
+DEFAULT_OUTPUT_DIR = Path("data/models/collision_total_weather_v1")
 
-TARGET_COLUMNS = ["y_leger", "y_grave", "y_mortel"]
 WEATHER_COLUMNS = [
     "mean_temp_c",
     "min_temp_c",
@@ -33,6 +37,7 @@ WEATHER_COLUMNS = [
     "total_precip_mm",
     "total_snow_cm",
 ]
+TARGET_COLUMN = "y_total"
 
 
 @dataclass
@@ -44,54 +49,11 @@ class TrainingConfig:
     end_date: Optional[str] = None
     eval_days: int = 365
     inner_eval_days: int = 240
+    weather_history_days: int = 4
+    grave_weight: float = 1.5
+    mortel_weight: float = 2.0
     random_state: int = 42
     weather_csv: Optional[Path] = None
-
-
-class TwoStageCountModel:
-    """
-    Predict count as: P(event > 0) * E[count | event > 0].
-    Useful for sparse targets such as grave/mortel.
-    """
-
-    def __init__(self, classifier: Any, regressor: Optional[Any], positive_default: float):
-        self.classifier = classifier
-        self.regressor = regressor
-        self.positive_default = float(max(positive_default, 0.0))
-
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        event_prob = self.classifier.predict_proba(X)[:, 1]
-        if self.regressor is None:
-            positive_count = np.full(shape=len(event_prob), fill_value=self.positive_default, dtype=float)
-        else:
-            positive_count = np.clip(self.regressor.predict(X), 0.0, None)
-        return np.clip(event_prob * positive_count, 0.0, None)
-
-
-class ConstantEventClassifier:
-    """Fallback binary classifier with a fixed positive class probability."""
-
-    def __init__(self, positive_probability: float):
-        self.positive_probability = float(np.clip(positive_probability, 0.0, 1.0))
-
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        n = len(X)
-        p1 = np.full(shape=n, fill_value=self.positive_probability, dtype=float)
-        p0 = 1.0 - p1
-        return np.column_stack([p0, p1])
-
-
-class FeatureColumnModel:
-    """Model wrapper returning a precomputed feature column as prediction."""
-
-    def __init__(self, feature_index: int, fallback_value: float = 0.0):
-        self.feature_index = int(feature_index)
-        self.fallback_value = float(max(fallback_value, 0.0))
-
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        values = X[:, self.feature_index]
-        safe = np.where(np.isfinite(values), values, self.fallback_value).astype(float)
-        return np.clip(safe, 0.0, None)
 
 
 def _utc_now_iso() -> str:
@@ -105,6 +67,11 @@ def _safe_float(value: Any) -> Optional[float]:
         return float(value)
     except Exception:
         return None
+
+
+def _normalize_text(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value))
+    return text.encode("ascii", "ignore").decode("ascii").strip().lower()
 
 
 def _parse_date_from_feature(properties: Dict[str, Any]) -> Optional[pd.Timestamp]:
@@ -219,9 +186,77 @@ def fetch_geomet_daily_weather(
     return aggregated
 
 
-def _normalize_text(value: Any) -> str:
-    text = unicodedata.normalize("NFKD", str(value))
-    return text.encode("ascii", "ignore").decode("ascii").strip().lower()
+def load_weather_from_csv(weather_csv: Path) -> pd.DataFrame:
+    weather = pd.read_csv(weather_csv)
+    required = set(["date"] + WEATHER_COLUMNS)
+    missing = required - set(weather.columns)
+    if missing:
+        raise ValueError(f"weather_csv is missing required columns: {sorted(missing)}")
+
+    weather = weather[["date"] + WEATHER_COLUMNS].copy()
+    weather["date"] = pd.to_datetime(weather["date"], errors="coerce").dt.normalize()
+    weather = weather.dropna(subset=["date"]).drop_duplicates(subset=["date"]).sort_values("date")
+    return weather
+
+
+def _fill_weather_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    for col in WEATHER_COLUMNS:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+        out[col] = out[col].ffill().bfill()
+        if out[col].isna().any():
+            median = float(out[col].median()) if out[col].notna().any() else 0.0
+            out[col] = out[col].fillna(median)
+    return out
+
+
+def build_weather_feature_frame(weather: pd.DataFrame, weather_history_days: int = 4) -> Tuple[pd.DataFrame, List[str]]:
+    if weather_history_days not in {2, 3, 4}:
+        raise ValueError("weather_history_days must be one of: 2, 3, 4")
+
+    frame = weather[["date"] + WEATHER_COLUMNS].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    frame = frame.dropna(subset=["date"]).drop_duplicates(subset=["date"]).sort_values("date")
+    frame = _fill_weather_columns(frame)
+
+    frame["dow"] = frame["date"].dt.dayofweek
+    frame["month"] = frame["date"].dt.month
+    frame["quarter"] = frame["date"].dt.quarter
+    frame["weekofyear"] = frame["date"].dt.isocalendar().week.astype(int)
+    frame["day_of_year"] = frame["date"].dt.dayofyear
+    frame["is_weekend"] = (frame["dow"] >= 5).astype(int)
+    frame["is_winter"] = frame["month"].isin([12, 1, 2]).astype(int)
+    frame["is_summer"] = frame["month"].isin([6, 7, 8]).astype(int)
+
+    frame["dow_sin"] = np.sin(2 * np.pi * frame["dow"] / 7.0)
+    frame["dow_cos"] = np.cos(2 * np.pi * frame["dow"] / 7.0)
+    frame["doy_sin"] = np.sin(2 * np.pi * frame["day_of_year"] / 366.0)
+    frame["doy_cos"] = np.cos(2 * np.pi * frame["day_of_year"] / 366.0)
+    frame["month_sin"] = np.sin(2 * np.pi * frame["month"] / 12.0)
+    frame["month_cos"] = np.cos(2 * np.pi * frame["month"] / 12.0)
+
+    frame["freeze_day"] = (frame["max_temp_c"] <= 0.0).astype(int)
+    frame["rain_day"] = (frame["total_precip_mm"] > 0.0).astype(int)
+    frame["snow_day"] = (frame["total_snow_cm"] > 0.0).astype(int)
+    frame["heavy_precip_day"] = (frame["total_precip_mm"] >= 10.0).astype(int)
+    frame["heavy_snow_day"] = (frame["total_snow_cm"] >= 5.0).astype(int)
+    frame["temp_range_c"] = frame["max_temp_c"] - frame["min_temp_c"]
+    frame["temp_x_precip"] = frame["mean_temp_c"] * frame["total_precip_mm"]
+
+    for col in WEATHER_COLUMNS:
+        for lag in range(1, weather_history_days + 1):
+            frame[f"{col}_lag_{lag}"] = frame[col].shift(lag)
+
+        for window in [2, 3, 4]:
+            if window <= weather_history_days:
+                prev = frame[col].shift(1)
+                frame[f"{col}_roll_mean_{window}"] = prev.rolling(window).mean()
+                frame[f"{col}_roll_max_{window}"] = prev.rolling(window).max()
+
+        frame[f"{col}_delta_1d"] = frame[col] - frame[f"{col}_lag_1"]
+
+    feature_cols = [c for c in frame.columns if c != "date"]
+    return frame, feature_cols
 
 
 def load_collision_targets(
@@ -278,101 +313,39 @@ def load_collision_targets(
     )
     grouped = grouped.reindex(full_dates, fill_value=0)
 
-    for target_col in TARGET_COLUMNS:
+    for target_col in ["y_leger", "y_grave", "y_mortel"]:
         if target_col not in grouped.columns:
             grouped[target_col] = 0
 
-    grouped = grouped[TARGET_COLUMNS].copy()
-    grouped["y_total"] = grouped[TARGET_COLUMNS].sum(axis=1)
+    grouped = grouped[["y_leger", "y_grave", "y_mortel"]].copy()
+    grouped[TARGET_COLUMN] = grouped[["y_leger", "y_grave", "y_mortel"]].sum(axis=1)
     grouped.index.name = "date"
     return grouped.reset_index()
 
 
-def _load_weather_from_csv(weather_csv: Path) -> pd.DataFrame:
-    weather = pd.read_csv(weather_csv)
-    missing = set(["date"] + WEATHER_COLUMNS) - set(weather.columns)
-    if missing:
-        raise ValueError(f"weather_csv is missing required columns: {sorted(missing)}")
+def build_training_frame(
+    targets: pd.DataFrame,
+    weather: pd.DataFrame,
+    weather_history_days: int,
+) -> Tuple[pd.DataFrame, List[str], pd.DataFrame]:
+    weather_features, weather_feature_cols = build_weather_feature_frame(
+        weather=weather,
+        weather_history_days=weather_history_days,
+    )
 
-    weather["date"] = pd.to_datetime(weather["date"], errors="coerce").dt.normalize()
-    weather = weather.dropna(subset=["date"]).copy()
-    return weather[["date"] + WEATHER_COLUMNS].sort_values("date")
+    frame = targets.merge(weather_features, on="date", how="inner").sort_values("date")
+    feature_cols = [c for c in weather_feature_cols if c in frame.columns]
 
-
-def build_feature_frame(targets: pd.DataFrame, weather: pd.DataFrame) -> Tuple[pd.DataFrame, List[str], List[str]]:
-    frame = targets.merge(weather, on="date", how="left").sort_values("date")
-
-    for col in WEATHER_COLUMNS:
-        frame[col] = pd.to_numeric(frame[col], errors="coerce")
-        frame[col] = frame[col].ffill().bfill()
-        if frame[col].isna().any():
-            median = float(frame[col].median()) if frame[col].notna().any() else 0.0
-            frame[col] = frame[col].fillna(median)
-
-    frame["dow"] = frame["date"].dt.dayofweek
-    frame["month"] = frame["date"].dt.month
-    frame["quarter"] = frame["date"].dt.quarter
-    frame["weekofyear"] = frame["date"].dt.isocalendar().week.astype(int)
-    frame["day_of_year"] = frame["date"].dt.dayofyear
-    frame["is_weekend"] = (frame["dow"] >= 5).astype(int)
-    frame["is_winter"] = frame["month"].isin([12, 1, 2]).astype(int)
-    frame["is_summer"] = frame["month"].isin([6, 7, 8]).astype(int)
-
-    frame["dow_sin"] = np.sin(2 * np.pi * frame["dow"] / 7.0)
-    frame["dow_cos"] = np.cos(2 * np.pi * frame["dow"] / 7.0)
-    frame["doy_sin"] = np.sin(2 * np.pi * frame["day_of_year"] / 366.0)
-    frame["doy_cos"] = np.cos(2 * np.pi * frame["day_of_year"] / 366.0)
-    frame["month_sin"] = np.sin(2 * np.pi * frame["month"] / 12.0)
-    frame["month_cos"] = np.cos(2 * np.pi * frame["month"] / 12.0)
-
-    frame["freeze_day"] = (frame["max_temp_c"] <= 0).astype(int)
-    frame["rain_day"] = (frame["total_precip_mm"] > 0).astype(int)
-    frame["snow_day"] = (frame["total_snow_cm"] > 0).astype(int)
-    frame["heavy_precip_day"] = (frame["total_precip_mm"] >= 10).astype(int)
-    frame["heavy_snow_day"] = (frame["total_snow_cm"] >= 5).astype(int)
-    frame["temp_x_precip"] = frame["mean_temp_c"] * frame["total_precip_mm"]
-    frame["temp_range_c"] = frame["max_temp_c"] - frame["min_temp_c"]
-
-    lag_days = [1, 2, 3, 7, 14, 21, 28, 35]
-    rolling_windows = [7, 14, 28]
-    lag_targets = TARGET_COLUMNS + ["y_total"]
-
-    for target in lag_targets:
-        for lag in lag_days:
-            frame[f"{target}_lag_{lag}"] = frame[target].shift(lag)
-        prev = frame[target].shift(1)
-        for window in rolling_windows:
-            rolling = prev.rolling(window=window)
-            frame[f"{target}_roll_mean_{window}"] = rolling.mean()
-            frame[f"{target}_roll_std_{window}"] = rolling.std()
-
-    for col in WEATHER_COLUMNS:
-        for lag in [1, 2, 7]:
-            frame[f"{col}_lag_{lag}"] = frame[col].shift(lag)
-        frame[f"{col}_roll_mean_3"] = frame[col].shift(1).rolling(3).mean()
-        frame[f"{col}_roll_mean_7"] = frame[col].shift(1).rolling(7).mean()
-
-    # Defragment before adding final targets to avoid repeated pandas block splits.
-    frame = frame.copy()
-
-    target_next_cols: List[str] = []
-    for target in TARGET_COLUMNS:
-        next_col = f"{target}_j1"
-        frame[next_col] = frame[target].shift(-1)
-        frame[f"{target}_baseline_weekday"] = frame[target].shift(6)
-        target_next_cols.append(next_col)
-
-    feature_cols = [c for c in frame.columns if c not in ["date"] + target_next_cols]
-    model_frame = frame.dropna(subset=feature_cols + target_next_cols).copy()
-    return model_frame, feature_cols, target_next_cols
+    required = feature_cols + [TARGET_COLUMN, "y_grave", "y_mortel"]
+    frame = frame.dropna(subset=required).copy()
+    return frame, feature_cols, weather_features
 
 
-def split_train_test(frame: pd.DataFrame, eval_days: int) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+def split_train_test(frame: pd.DataFrame, eval_days: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
     if eval_days < 30:
-        raise ValueError("eval_days must be >= 30.")
+        raise ValueError("eval_days must be >= 30")
 
-    last_date = frame["date"].max()
-    cutoff = last_date - pd.Timedelta(days=eval_days)
+    cutoff = frame["date"].max() - pd.Timedelta(days=eval_days)
     train = frame[frame["date"] <= cutoff].copy()
     test = frame[frame["date"] > cutoff].copy()
 
@@ -380,63 +353,40 @@ def split_train_test(frame: pd.DataFrame, eval_days: int) -> Tuple[pd.DataFrame,
         split_idx = int(len(frame) * 0.8)
         train = frame.iloc[:split_idx].copy()
         test = frame.iloc[split_idx:].copy()
-        cutoff = train["date"].max()
 
     if train.empty or test.empty:
-        raise ValueError("Unable to create non-empty temporal train/test split.")
-
-    return train, test, cutoff
+        raise ValueError("Unable to create non-empty temporal train/test split")
+    return train, test
 
 
 def _metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     err = y_pred - y_true
     abs_err = np.abs(err)
+
     mae = float(abs_err.mean())
     rmse = float(math.sqrt(np.mean(err ** 2)))
     bias = float(err.mean())
-
     total_true = float(y_true.sum())
     total_pred = float(y_pred.sum())
     wape = float(abs_err.sum() / max(total_true, 1.0))
 
-    mask_non_zero = y_true > 0
-    mae_non_zero = float(abs_err[mask_non_zero].mean()) if mask_non_zero.any() else 0.0
+    sse = float(np.sum(err ** 2))
+    sst = float(np.sum((y_true - y_true.mean()) ** 2))
+    r2 = float(1.0 - (sse / sst)) if sst > 0 else 0.0
+
+    non_zero = y_true > 0
+    mae_non_zero = float(abs_err[non_zero].mean()) if non_zero.any() else 0.0
 
     return {
         "mae": round(mae, 4),
         "rmse": round(rmse, 4),
         "bias": round(bias, 4),
         "wape": round(wape, 4),
+        "r2": round(r2, 4),
         "mae_non_zero": round(mae_non_zero, 4),
         "sum_true": round(total_true, 4),
         "sum_pred": round(total_pred, 4),
     }
-
-
-def _target_sample_weights(y: np.ndarray, target_label: str) -> np.ndarray:
-    event_boost = {
-        "leger": 1.0,
-        "grave": 4.0,
-        "mortel": 10.0,
-    }.get(target_label, 1.0)
-    magnitude_boost = {
-        "leger": 0.15,
-        "grave": 0.60,
-        "mortel": 1.20,
-    }.get(target_label, 0.15)
-
-    weights = np.ones_like(y, dtype=float)
-    weights += event_boost * (y > 0).astype(float)
-    weights += magnitude_boost * np.sqrt(np.clip(y, 0.0, None))
-    return weights
-
-
-def _positive_class_weight(target_label: str) -> float:
-    return {
-        "leger": 2.0,
-        "grave": 8.0,
-        "mortel": 25.0,
-    }.get(target_label, 2.0)
 
 
 def _inner_temporal_split(train: pd.DataFrame, inner_eval_days: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -451,364 +401,317 @@ def _inner_temporal_split(train: pd.DataFrame, inner_eval_days: int) -> Tuple[pd
         inner_valid = train.iloc[split_idx:].copy()
 
     if inner_train.empty or inner_valid.empty:
-        raise ValueError("Unable to build inner validation split for tuning.")
-
+        raise ValueError("Unable to create inner validation split")
     return inner_train, inner_valid
 
 
 def _build_validation_folds(
     train: pd.DataFrame,
     inner_eval_days: int,
-    n_folds: int = 3,
-) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
-    folds: List[Tuple[pd.DataFrame, pd.DataFrame]] = []
-    eval_days = max(60, int(inner_eval_days))
-    max_date = train["date"].max()
-
-    for fold_idx in range(n_folds):
-        valid_end = max_date - pd.Timedelta(days=fold_idx * eval_days)
-        valid_start = valid_end - pd.Timedelta(days=eval_days - 1)
-        train_end = valid_start - pd.Timedelta(days=1)
-
-        fold_train = train[train["date"] <= train_end].copy()
-        fold_valid = train[(train["date"] >= valid_start) & (train["date"] <= valid_end)].copy()
-
-        if len(fold_train) < 365 or len(fold_valid) < 60:
+    max_year_folds: int = 4,
+) -> List[Tuple[pd.DataFrame, pd.DataFrame, str]]:
+    candidates: List[Tuple[pd.DataFrame, pd.DataFrame, str]] = []
+    years = sorted(train["date"].dt.year.unique().tolist())
+    for year in years:
+        valid = train[train["date"].dt.year == year].copy()
+        train_part = train[train["date"] < pd.Timestamp(year=year, month=1, day=1)].copy()
+        if len(valid) < 90:
             continue
-        folds.append((fold_train, fold_valid))
+        if len(train_part) < 365:
+            continue
+        candidates.append((train_part, valid, f"year_{year}"))
 
-    if folds:
-        return folds
+    if len(candidates) >= 2:
+        return candidates[-max_year_folds:]
 
-    # Fallback: single split when not enough data for multiple folds.
-    single_train, single_valid = _inner_temporal_split(train, inner_eval_days=inner_eval_days)
-    return [(single_train, single_valid)]
-
-
-def _candidate_specs(target_label: str) -> List[Dict[str, Any]]:
-    target_base = f"y_{target_label}"
-    poisson_base = {
-        "type": "single",
-        "loss": "poisson",
-        "params": {
-            "learning_rate": 0.05,
-            "max_depth": 6,
-            "max_iter": 500,
-            "min_samples_leaf": 20,
-            "l2_regularization": 0.1,
-        },
-    }
-    poisson_slow = {
-        "type": "single",
-        "loss": "poisson",
-        "params": {
-            "learning_rate": 0.03,
-            "max_depth": 8,
-            "max_iter": 900,
-            "min_samples_leaf": 15,
-            "l2_regularization": 0.2,
-        },
-    }
-    absolute_base = {
-        "type": "single",
-        "loss": "absolute_error",
-        "params": {
-            "learning_rate": 0.05,
-            "max_depth": 6,
-            "max_iter": 500,
-            "min_samples_leaf": 20,
-            "l2_regularization": 0.1,
-        },
-    }
-    two_stage = {
-        "type": "two_stage",
-        "classifier_params": {
-            "learning_rate": 0.05,
-            "max_depth": 4,
-            "max_iter": 400,
-            "min_samples_leaf": 20,
-            "l2_regularization": 0.05,
-        },
-        "regressor_params": {
-            "learning_rate": 0.04,
-            "max_depth": 5,
-            "max_iter": 500,
-            "min_samples_leaf": 12,
-            "l2_regularization": 0.15,
-        },
-    }
-    baseline_rolling7 = {
-        "name": "baseline_rolling7",
-        "type": "feature_column",
-        "feature_name": f"{target_base}_roll_mean_7",
-    }
-    baseline_weekday = {
-        "name": "baseline_weekday",
-        "type": "feature_column",
-        "feature_name": f"{target_base}_baseline_weekday",
-    }
-
-    if target_label == "leger":
-        return [
-            {"name": "poisson_base", **poisson_base},
-            {"name": "poisson_slow", **poisson_slow},
-            {"name": "absolute_base", **absolute_base},
-            baseline_rolling7,
-            baseline_weekday,
-        ]
-    if target_label == "grave":
-        return [
-            baseline_rolling7,
-            baseline_weekday,
-            {"name": "absolute_base", **absolute_base},
-            {"name": "poisson_base", **poisson_base},
-            {"name": "two_stage_sparse", **two_stage},
-        ]
-    return [
-        baseline_weekday,
-        {"name": "two_stage_sparse", **two_stage},
-        {"name": "poisson_base", **poisson_base},
-        {"name": "absolute_base", **absolute_base},
-        baseline_rolling7,
-    ]
+    inner_train, inner_valid = _inner_temporal_split(train, inner_eval_days=inner_eval_days)
+    return [(inner_train, inner_valid, "recent_holdout")]
 
 
-def _fit_candidate_model(
-    spec: Dict[str, Any],
-    target_label: str,
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    random_seed: int,
-    regressor_cls: Any,
-    classifier_cls: Any,
-    feature_cols: List[str],
-) -> Any:
-    if spec["type"] == "feature_column":
-        feature_name = spec["feature_name"]
-        if feature_name not in feature_cols:
-            raise ValueError(f"Feature '{feature_name}' not found for baseline candidate.")
-        feature_index = feature_cols.index(feature_name)
-        fallback_value = float(np.mean(y_train)) if len(y_train) else 0.0
-        return FeatureColumnModel(feature_index=feature_index, fallback_value=fallback_value)
+def _build_calendar_baseline_model(train: pd.DataFrame, feature_cols: List[str]) -> CalendarBaselineModel:
+    if "dow" not in feature_cols or "month" not in feature_cols:
+        raise ValueError("Feature columns must contain 'dow' and 'month' for calendar baseline.")
 
-    if spec["type"] == "single":
-        model = regressor_cls(
-            loss=spec["loss"],
-            random_state=random_seed,
-            **spec["params"],
-        )
-        model.fit(X_train, y_train, sample_weight=_target_sample_weights(y_train, target_label))
-        return model
+    grouped = (
+        train.groupby(["dow", "month"], as_index=False)[TARGET_COLUMN]
+        .mean()
+    )
+    lookup: Dict[Tuple[int, int], float] = {}
+    for _, row in grouped.iterrows():
+        lookup[(int(row["dow"]), int(row["month"]))] = float(row[TARGET_COLUMN])
 
-    y_event = (y_train > 0).astype(int)
-    if int(y_event.min()) == int(y_event.max()):
-        classifier = ConstantEventClassifier(float(y_event.mean()))
-    else:
-        classifier = classifier_cls(
-            loss="log_loss",
-            random_state=random_seed,
-            **spec["classifier_params"],
-        )
-        class_weights = np.where(y_event == 1, _positive_class_weight(target_label), 1.0).astype(float)
-        classifier.fit(X_train, y_event, sample_weight=class_weights)
-
-    positive_mask = y_event == 1
-    if int(positive_mask.sum()) >= max(20, int(0.02 * len(y_train))):
-        regressor = regressor_cls(
-            loss="poisson",
-            random_state=random_seed + 1,
-            **spec["regressor_params"],
-        )
-        X_positive = X_train[positive_mask]
-        y_positive = y_train[positive_mask]
-        regressor.fit(
-            X_positive,
-            y_positive,
-            sample_weight=_target_sample_weights(y_positive, target_label),
-        )
-        positive_default = float(np.mean(y_positive))
-    else:
-        regressor = None
-        positive_default = float(np.mean(y_train[positive_mask])) if positive_mask.any() else 0.0
-
-    return TwoStageCountModel(
-        classifier=classifier,
-        regressor=regressor,
-        positive_default=positive_default,
+    return CalendarBaselineModel(
+        dow_feature_index=feature_cols.index("dow"),
+        month_feature_index=feature_cols.index("month"),
+        lookup=lookup,
+        fallback=float(train[TARGET_COLUMN].mean()),
     )
 
 
-def train_models(
+def _build_global_baseline_model(train: pd.DataFrame) -> ConstantModel:
+    return ConstantModel(value=float(train[TARGET_COLUMN].mean()))
+
+
+def _sample_weights(train: pd.DataFrame, config: TrainingConfig) -> np.ndarray:
+    y_total = train[TARGET_COLUMN].to_numpy(dtype=float)
+    y_grave = train["y_grave"].to_numpy(dtype=float)
+    y_mortel = train["y_mortel"].to_numpy(dtype=float)
+
+    weights = np.ones_like(y_total, dtype=float)
+    weights += 0.15 * np.sqrt(np.clip(y_total, 0.0, None))
+    weights += float(config.grave_weight) * (y_grave > 0).astype(float)
+    weights += float(config.mortel_weight) * (y_mortel > 0).astype(float)
+    return weights
+
+
+def _fit_hgb(
+    HistGradientBoostingRegressor: Any,
+    spec: Dict[str, Any],
+    weight_profile: str,
+    X: np.ndarray,
+    y: np.ndarray,
+    train_df: pd.DataFrame,
+    config: TrainingConfig,
+    random_state: int,
+) -> Any:
+    model = HistGradientBoostingRegressor(
+        loss=spec["loss"],
+        random_state=random_state,
+        **spec["params"],
+    )
+
+    if weight_profile == "severity":
+        sample_weight = _sample_weights(train_df, config)
+    elif weight_profile == "uniform":
+        sample_weight = np.ones(shape=len(train_df), dtype=float)
+    else:
+        raise ValueError(f"Unknown weight_profile: {weight_profile}")
+
+    model.fit(X, y, sample_weight=sample_weight)
+    return model
+
+
+def train_model(
     train: pd.DataFrame,
     test: pd.DataFrame,
     feature_cols: List[str],
-    target_next_cols: List[str],
-    random_state: int,
-    inner_eval_days: int,
-) -> Tuple[Dict[str, Any], Dict[str, Any], pd.DataFrame]:
+    config: TrainingConfig,
+) -> Tuple[Any, Dict[str, Any], pd.DataFrame]:
     try:
-        from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
-    except Exception as exc:  # pragma: no cover - explicit runtime guard
+        from sklearn.ensemble import HistGradientBoostingRegressor
+    except Exception as exc:  # pragma: no cover
         raise RuntimeError(
-            "scikit-learn is required for training. Install it with `pip install scikit-learn`."
+            "scikit-learn is required for training. Install with `pip install scikit-learn`."
         ) from exc
-
-    models: Dict[str, Any] = {}
-    metrics: Dict[str, Any] = {}
-    predictions = pd.DataFrame({"date": test["date"].values})
 
     X_train_full = train[feature_cols].to_numpy(dtype=float)
     X_test = test[feature_cols].to_numpy(dtype=float)
+    y_train_full = train[TARGET_COLUMN].to_numpy(dtype=float)
+    y_test = test[TARGET_COLUMN].to_numpy(dtype=float)
+    validation_folds = _build_validation_folds(train, inner_eval_days=config.inner_eval_days)
+    fold_payloads: List[Dict[str, Any]] = []
+    for fold_train, fold_valid, fold_name in validation_folds:
+        X_fold_train = fold_train[feature_cols].to_numpy(dtype=float)
+        y_fold_train = fold_train[TARGET_COLUMN].to_numpy(dtype=float)
+        X_fold_valid = fold_valid[feature_cols].to_numpy(dtype=float)
+        y_fold_valid = fold_valid[TARGET_COLUMN].to_numpy(dtype=float)
 
-    for target_idx, target_next in enumerate(target_next_cols):
-        target_label = target_next.replace("y_", "").replace("_j1", "")
-        target_now = target_next.replace("_j1", "")
+        calendar_model_fold = _build_calendar_baseline_model(fold_train, feature_cols=feature_cols)
+        global_model_fold = _build_global_baseline_model(fold_train)
 
-        y_train_full = train[target_next].to_numpy(dtype=float)
-        y_test = test[target_next].to_numpy(dtype=float)
-
-        validation_folds = _build_validation_folds(
-            train=train,
-            inner_eval_days=inner_eval_days,
-            n_folds=3,
-        )
-
-        leaderboard: List[Dict[str, Any]] = []
-        candidate_specs = _candidate_specs(target_label)
-
-        for idx, spec in enumerate(candidate_specs):
-            candidate_seed = random_state + (target_idx * 100) + idx
-            try:
-                fold_maes: List[float] = []
-                fold_rmses: List[float] = []
-                fold_rows: List[int] = []
-
-                for fold_number, (fold_train_df, fold_valid_df) in enumerate(validation_folds):
-                    X_fold_train = fold_train_df[feature_cols].to_numpy(dtype=float)
-                    y_fold_train = fold_train_df[target_next].to_numpy(dtype=float)
-                    X_fold_valid = fold_valid_df[feature_cols].to_numpy(dtype=float)
-                    y_fold_valid = fold_valid_df[target_next].to_numpy(dtype=float)
-
-                    fold_model = _fit_candidate_model(
-                        spec=spec,
-                        target_label=target_label,
-                        X_train=X_fold_train,
-                        y_train=y_fold_train,
-                        random_seed=candidate_seed + fold_number,
-                        regressor_cls=HistGradientBoostingRegressor,
-                        classifier_cls=HistGradientBoostingClassifier,
-                        feature_cols=feature_cols,
-                    )
-                    valid_pred = np.clip(fold_model.predict(X_fold_valid), 0.0, None)
-                    fold_metrics = _metrics(y_fold_valid, valid_pred)
-                    fold_maes.append(float(fold_metrics["mae"]))
-                    fold_rmses.append(float(fold_metrics["rmse"]))
-                    fold_rows.append(int(len(fold_valid_df)))
-
-                mean_mae = float(np.mean(fold_maes))
-                mean_rmse = float(np.mean(fold_rmses))
-                leaderboard.append(
-                    {
-                        "name": spec["name"],
-                        "mae": round(mean_mae, 4),
-                        "rmse": round(mean_rmse, 4),
-                        "fold_mae": [round(v, 4) for v in fold_maes],
-                        "fold_rmse": [round(v, 4) for v in fold_rmses],
-                        "fold_rows": fold_rows,
-                        "status": "ok",
-                    }
-                )
-            except Exception as candidate_error:
-                leaderboard.append(
-                    {
-                        "name": spec["name"],
-                        "status": "error",
-                        "error": str(candidate_error)[:240],
-                    }
-                )
-
-        successful_candidates = [row for row in leaderboard if row.get("status") == "ok"]
-        if not successful_candidates:
-            raise RuntimeError(f"No valid candidate model for target '{target_label}'.")
-
-        mae_tolerance = {
-            "leger": 0.005,
-            "grave": 0.015,
-            "mortel": 0.01,
-        }.get(target_label, 0.005)
-        best_mae = min(row["mae"] for row in successful_candidates)
-        close_candidates = [
-            row
-            for row in successful_candidates
-            if row["mae"] <= (best_mae + mae_tolerance)
-        ]
-        selected_row = min(
-            close_candidates,
-            key=lambda row: (
-                row["rmse"],
-                row["mae"],
-                row["name"],
-            ),
-        )
-        spec_by_name = {spec["name"]: spec for spec in candidate_specs}
-        best_spec = spec_by_name[selected_row["name"]]
-
-        final_seed = random_state + (target_idx * 1000) + 999
-        final_model = _fit_candidate_model(
-            spec=best_spec,
-            target_label=target_label,
-            X_train=X_train_full,
-            y_train=y_train_full,
-            random_seed=final_seed,
-            regressor_cls=HistGradientBoostingRegressor,
-            classifier_cls=HistGradientBoostingClassifier,
-            feature_cols=feature_cols,
-        )
-
-        y_pred = np.clip(final_model.predict(X_test), 0.0, None)
-        baseline_weekday_col = f"{target_now}_baseline_weekday"
-        baseline_roll7_col = f"{target_now}_roll_mean_7"
-
-        baseline_weekday = test[baseline_weekday_col].fillna(float(np.mean(y_train_full))).to_numpy(dtype=float)
-        baseline_weekday = np.clip(baseline_weekday, 0.0, None)
-
-        baseline_roll7 = test[baseline_roll7_col].fillna(float(np.mean(y_train_full))).to_numpy(dtype=float)
-        baseline_roll7 = np.clip(baseline_roll7, 0.0, None)
-
-        leaderboard_sorted = sorted(
-            leaderboard,
-            key=lambda item: (
-                item.get("mae", float("inf")),
-                item.get("rmse", float("inf")),
-                item.get("name", ""),
-            ),
-        )
-        validation_windows = [
+        fold_payloads.append(
             {
-                "start": str(fold_valid["date"].min().date()),
-                "end": str(fold_valid["date"].max().date()),
-                "rows": int(len(fold_valid)),
+                "fold_name": fold_name,
+                "train_df": fold_train,
+                "X_train": X_fold_train,
+                "y_train": y_fold_train,
+                "X_valid": X_fold_valid,
+                "y_valid": y_fold_valid,
+                "pred_calendar": calendar_model_fold.predict(X_fold_valid),
+                "pred_global": global_model_fold.predict(X_fold_valid),
             }
-            for _, fold_valid in validation_folds
-        ]
-        metrics[target_label] = {
-            "selected_candidate": best_spec["name"],
-            "validation_windows": validation_windows,
-            "validation_candidates": leaderboard_sorted,
-            "model": _metrics(y_test, y_pred),
-            "baseline_weekday": _metrics(y_test, baseline_weekday),
-            "baseline_rolling7": _metrics(y_test, baseline_roll7),
+        )
+
+    y_valid_all = np.concatenate([payload["y_valid"] for payload in fold_payloads])
+
+    candidate_specs = [
+        {
+            "name": "hgb_poisson",
+            "loss": "poisson",
+            "params": {
+                "learning_rate": 0.03,
+                "max_depth": 6,
+                "max_iter": 1100,
+                "min_samples_leaf": 20,
+                "l2_regularization": 0.3,
+            },
+        },
+        {
+            "name": "hgb_absolute",
+            "loss": "absolute_error",
+            "params": {
+                "learning_rate": 0.03,
+                "max_depth": 7,
+                "max_iter": 1200,
+                "min_samples_leaf": 12,
+                "l2_regularization": 0.15,
+            },
+        },
+    ]
+    weight_profiles = ["uniform", "severity"]
+
+    leaderboard: List[Dict[str, Any]] = []
+    hgb_valid_preds: Dict[str, np.ndarray] = {}
+    seed = config.random_state
+
+    for spec in candidate_specs:
+        for weight_profile in weight_profiles:
+            candidate_name = f"{spec['name']}__{weight_profile}"
+            pred_chunks: List[np.ndarray] = []
+            for payload in fold_payloads:
+                seed += 1
+                model = _fit_hgb(
+                    HistGradientBoostingRegressor=HistGradientBoostingRegressor,
+                    spec=spec,
+                    weight_profile=weight_profile,
+                    X=payload["X_train"],
+                    y=payload["y_train"],
+                    train_df=payload["train_df"],
+                    config=config,
+                    random_state=seed,
+                )
+                pred_chunks.append(np.clip(model.predict(payload["X_valid"]), 0.0, None))
+
+            valid_pred = np.concatenate(pred_chunks)
+            hgb_valid_preds[candidate_name] = valid_pred
+            score = _metrics(y_valid_all, valid_pred)
+            leaderboard.append(
+                {
+                    "name": candidate_name,
+                    "kind": "hgb",
+                    "spec_name": spec["name"],
+                    "weight_profile": weight_profile,
+                    "mae": score["mae"],
+                    "rmse": score["rmse"],
+                    "status": "ok",
+                }
+            )
+
+    baseline_calendar_valid = np.concatenate([payload["pred_calendar"] for payload in fold_payloads])
+    baseline_global_valid = np.concatenate([payload["pred_global"] for payload in fold_payloads])
+    calendar_score = _metrics(y_valid_all, baseline_calendar_valid)
+    global_score = _metrics(y_valid_all, baseline_global_valid)
+
+    leaderboard.append(
+        {
+            "name": "baseline_calendar",
+            "kind": "baseline_calendar",
+            "mae": calendar_score["mae"],
+            "rmse": calendar_score["rmse"],
+            "status": "ok",
         }
+    )
+    leaderboard.append(
+        {
+            "name": "baseline_global",
+            "kind": "baseline_global",
+            "mae": global_score["mae"],
+            "rmse": global_score["rmse"],
+            "status": "ok",
+        }
+    )
 
-        predictions[f"{target_label}_true"] = y_test
-        predictions[f"{target_label}_pred"] = y_pred
-        predictions[f"{target_label}_baseline_weekday"] = baseline_weekday
-        predictions[f"{target_label}_baseline_rolling7"] = baseline_roll7
-        predictions[f"{target_label}_model_name"] = best_spec["name"]
+    for base_name, base_pred in hgb_valid_preds.items():
+        base_row = next(row for row in leaderboard if row["name"] == base_name)
+        for alpha in [0.2, 0.35, 0.5, 0.65, 0.8]:
+            blend_pred = np.clip(alpha * base_pred + (1.0 - alpha) * baseline_calendar_valid, 0.0, None)
+            score = _metrics(y_valid_all, blend_pred)
+            leaderboard.append(
+                {
+                    "name": f"blend_calendar({base_name},a={alpha:.2f})",
+                    "kind": "blend",
+                    "base_hgb": base_name,
+                    "spec_name": base_row["spec_name"],
+                    "weight_profile": base_row["weight_profile"],
+                    "alpha": float(alpha),
+                    "mae": score["mae"],
+                    "rmse": score["rmse"],
+                    "status": "ok",
+                }
+            )
 
-        models[target_label] = final_model
+    valid_candidates = [row for row in leaderboard if row.get("status") == "ok"]
+    selected = min(valid_candidates, key=lambda r: (r["mae"], r["rmse"], r["name"]))
 
-    return models, metrics, predictions
+    selected_name = selected["name"]
+    selected_kind = selected["kind"]
+
+    if selected_kind == "baseline_calendar":
+        final_model = _build_calendar_baseline_model(train, feature_cols=feature_cols)
+    elif selected_kind == "baseline_global":
+        final_model = _build_global_baseline_model(train)
+    elif selected_kind == "hgb":
+        spec = next(s for s in candidate_specs if s["name"] == selected["spec_name"])
+        final_model = _fit_hgb(
+            HistGradientBoostingRegressor=HistGradientBoostingRegressor,
+            spec=spec,
+            weight_profile=selected["weight_profile"],
+            X=X_train_full,
+            y=y_train_full,
+            train_df=train,
+            config=config,
+            random_state=config.random_state + 999,
+        )
+    elif selected_kind == "blend":
+        spec = next(s for s in candidate_specs if s["name"] == selected["spec_name"])
+        hgb_model = _fit_hgb(
+            HistGradientBoostingRegressor=HistGradientBoostingRegressor,
+            spec=spec,
+            weight_profile=selected["weight_profile"],
+            X=X_train_full,
+            y=y_train_full,
+            train_df=train,
+            config=config,
+            random_state=config.random_state + 999,
+        )
+        calendar_model = _build_calendar_baseline_model(train, feature_cols=feature_cols)
+        final_model = WeightedBlendModel(
+            primary_model=hgb_model,
+            secondary_model=calendar_model,
+            alpha_primary=float(selected["alpha"]),
+        )
+    else:  # pragma: no cover
+        raise ValueError(f"Unsupported selected candidate kind: {selected_kind}")
+
+    y_pred = np.clip(final_model.predict(X_test), 0.0, None)
+    baseline_calendar_test = _build_calendar_baseline_model(train, feature_cols=feature_cols).predict(X_test)
+    baseline_global_test = _build_global_baseline_model(train).predict(X_test)
+
+    metrics = {
+        "total": {
+            "selected_candidate": selected_name,
+            "validation_candidates": sorted(
+                leaderboard,
+                key=lambda row: (row.get("mae", float("inf")), row.get("rmse", float("inf"))),
+            ),
+            "model": _metrics(y_test, y_pred),
+            "baseline_calendar": _metrics(y_test, baseline_calendar_test),
+            "baseline_global": _metrics(y_test, baseline_global_test),
+        }
+    }
+
+    predictions = pd.DataFrame(
+        {
+            "date": test["date"].values,
+            "total_true": y_test,
+            "total_pred": y_pred,
+            "total_baseline_calendar": baseline_calendar_test,
+            "total_baseline_global": baseline_global_test,
+            "total_model_name": selected_name,
+        }
+    )
+
+    return final_model, metrics, predictions
 
 
 def _serialize_config(config: TrainingConfig) -> Dict[str, Any]:
@@ -820,20 +723,49 @@ def _serialize_config(config: TrainingConfig) -> Dict[str, Any]:
         "end_date": config.end_date,
         "eval_days": config.eval_days,
         "inner_eval_days": config.inner_eval_days,
+        "weather_history_days": config.weather_history_days,
+        "grave_weight": config.grave_weight,
+        "mortel_weight": config.mortel_weight,
         "random_state": config.random_state,
         "weather_csv": str(config.weather_csv) if config.weather_csv else None,
     }
+
+
+def _resolve_start_end(
+    targets: pd.DataFrame,
+    start_date: Optional[str],
+    end_date: Optional[str],
+) -> Tuple[pd.Timestamp, pd.Timestamp]:
+    min_date = targets["date"].min()
+    max_date = targets["date"].max()
+
+    if start_date:
+        parsed_start = pd.to_datetime(start_date, errors="coerce")
+        if pd.isna(parsed_start):
+            raise ValueError("Invalid start_date format. Expected YYYY-MM-DD")
+        min_date = max(min_date, parsed_start.normalize())
+
+    if end_date:
+        parsed_end = pd.to_datetime(end_date, errors="coerce")
+        if pd.isna(parsed_end):
+            raise ValueError("Invalid end_date format. Expected YYYY-MM-DD")
+        max_date = min(max_date, parsed_end.normalize())
+
+    if min_date > max_date:
+        raise ValueError("Requested start_date is after end_date")
+
+    return min_date, max_date
 
 
 def save_artifacts(
     output_dir: Path,
     config: TrainingConfig,
     feature_cols: List[str],
-    target_next_cols: List[str],
     frame: pd.DataFrame,
     train: pd.DataFrame,
     test: pd.DataFrame,
-    models: Dict[str, Any],
+    weather_history: pd.DataFrame,
+    model: Any,
     metrics: Dict[str, Any],
     predictions: pd.DataFrame,
 ) -> Dict[str, Any]:
@@ -841,23 +773,19 @@ def save_artifacts(
 
     try:
         import joblib
-    except Exception as exc:  # pragma: no cover - explicit runtime guard
-        raise RuntimeError(
-            "joblib is required for artifact export. Install it with `pip install joblib`."
-        ) from exc
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("joblib is required for artifact export") from exc
 
-    for target_label, model in models.items():
-        joblib.dump(model, output_dir / f"model_{target_label}.joblib")
+    joblib.dump(model, output_dir / "model_total.joblib")
 
     (output_dir / "feature_columns.json").write_text(
         json.dumps(feature_cols, indent=2),
         encoding="utf-8",
     )
 
-    latest_features = frame[["date"] + feature_cols].tail(1).copy()
-    latest_features.to_csv(output_dir / "latest_features_row.csv", index=False)
+    weather_history[["date"] + WEATHER_COLUMNS].to_csv(output_dir / "weather_history.csv", index=False)
+    frame.to_csv(output_dir / "daily_model_frame.csv", index=False)
     predictions.to_csv(output_dir / "test_predictions.csv", index=False)
-    frame.to_csv(output_dir / "daily_training_frame.csv", index=False)
 
     summary = {
         "generated_at_utc": _utc_now_iso(),
@@ -873,38 +801,16 @@ def save_artifacts(
             "test_date_min": str(test["date"].min().date()),
             "test_date_max": str(test["date"].max().date()),
         },
-        "targets": target_next_cols,
+        "targets": [TARGET_COLUMN],
         "metrics": metrics,
     }
+
     (output_dir / "training_summary.json").write_text(
         json.dumps(summary, indent=2),
         encoding="utf-8",
     )
+
     return summary
-
-
-def _resolve_start_end(
-    targets: pd.DataFrame,
-    start_date: Optional[str],
-    end_date: Optional[str],
-) -> Tuple[pd.Timestamp, pd.Timestamp]:
-    min_date = targets["date"].min()
-    max_date = targets["date"].max()
-
-    if start_date:
-        parsed_start = pd.to_datetime(start_date, errors="coerce")
-        if pd.isna(parsed_start):
-            raise ValueError("Invalid start_date format. Expected YYYY-MM-DD.")
-        min_date = max(min_date, parsed_start.normalize())
-    if end_date:
-        parsed_end = pd.to_datetime(end_date, errors="coerce")
-        if pd.isna(parsed_end):
-            raise ValueError("Invalid end_date format. Expected YYYY-MM-DD.")
-        max_date = min(max_date, parsed_end.normalize())
-
-    if min_date > max_date:
-        raise ValueError("Requested start_date is after end_date.")
-    return min_date, max_date
 
 
 def run_training(config: TrainingConfig) -> Dict[str, Any]:
@@ -913,10 +819,10 @@ def run_training(config: TrainingConfig) -> Dict[str, Any]:
 
     targets = targets[(targets["date"] >= start_date) & (targets["date"] <= end_date)].copy()
     if targets.empty:
-        raise ValueError("No target rows available after date filtering.")
+        raise ValueError("No target rows available after date filtering")
 
     if config.weather_csv:
-        weather = _load_weather_from_csv(config.weather_csv)
+        weather = load_weather_from_csv(config.weather_csv)
     else:
         weather = fetch_geomet_daily_weather(
             start_date=start_date,
@@ -924,26 +830,34 @@ def run_training(config: TrainingConfig) -> Dict[str, Any]:
             climate_identifier=config.climate_identifier,
         )
 
-    frame, feature_cols, target_next_cols = build_feature_frame(targets=targets, weather=weather)
-    train, test, _ = split_train_test(frame=frame, eval_days=config.eval_days)
-    models, metrics, predictions = train_models(
+    weather = weather[(weather["date"] >= start_date) & (weather["date"] <= end_date)].copy()
+    if weather.empty:
+        raise ValueError("No weather rows available after date filtering")
+
+    frame, feature_cols, weather_features = build_training_frame(
+        targets=targets,
+        weather=weather,
+        weather_history_days=config.weather_history_days,
+    )
+
+    train, test = split_train_test(frame=frame, eval_days=config.eval_days)
+
+    model, metrics, predictions = train_model(
         train=train,
         test=test,
         feature_cols=feature_cols,
-        target_next_cols=target_next_cols,
-        random_state=config.random_state,
-        inner_eval_days=config.inner_eval_days,
+        config=config,
     )
 
     summary = save_artifacts(
         output_dir=config.output_dir,
         config=config,
         feature_cols=feature_cols,
-        target_next_cols=target_next_cols,
         frame=frame,
         train=train,
         test=test,
-        models=models,
+        weather_history=weather_features,
+        model=model,
         metrics=metrics,
         predictions=predictions,
     )
@@ -952,52 +866,31 @@ def run_training(config: TrainingConfig) -> Dict[str, Any]:
 
 def parse_args() -> TrainingConfig:
     parser = argparse.ArgumentParser(
-        description=(
-            "Train J+1 collision count models (leger, grave, mortel) "
-            "from mobility.db and GeoMet daily weather."
-        )
+        description="Train total collision forecast model by date from weather + calendar features."
     )
+    parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="Path to SQLite DB")
+    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output model directory")
+    parser.add_argument("--climate-identifier", default=DEFAULT_CLIMATE_IDENTIFIER, help="GeoMet station id")
+    parser.add_argument("--start-date", default=None, help="Start date YYYY-MM-DD")
+    parser.add_argument("--end-date", default=None, help="End date YYYY-MM-DD")
+    parser.add_argument("--eval-days", type=int, default=365, help="Temporal test window size")
+    parser.add_argument("--inner-eval-days", type=int, default=240, help="Validation window size")
     parser.add_argument(
-        "--db-path",
-        default=str(DEFAULT_DB_PATH),
-        help="Path to SQLite DB (default: data/db/mobility.db).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=str(DEFAULT_OUTPUT_DIR),
-        help="Output directory for model artifacts.",
-    )
-    parser.add_argument(
-        "--climate-identifier",
-        default=DEFAULT_CLIMATE_IDENTIFIER,
-        help="GeoMet climate station identifier (default: 7025251).",
-    )
-    parser.add_argument("--start-date", default=None, help="Training start date YYYY-MM-DD.")
-    parser.add_argument("--end-date", default=None, help="Training end date YYYY-MM-DD.")
-    parser.add_argument(
-        "--eval-days",
+        "--weather-history-days",
         type=int,
-        default=365,
-        help="Size of the temporal test window in days (default: 365).",
+        default=4,
+        choices=[2, 3, 4],
+        help="How many recent weather days are used as lag features",
     )
-    parser.add_argument(
-        "--inner-eval-days",
-        type=int,
-        default=240,
-        help="Validation window size in days used for model selection (default: 240).",
-    )
-    parser.add_argument(
-        "--random-state",
-        type=int,
-        default=42,
-        help="Random state used by sklearn estimators.",
-    )
+    parser.add_argument("--grave-weight", type=float, default=1.5, help="Extra sample weight when grave>0")
+    parser.add_argument("--mortel-weight", type=float, default=2.0, help="Extra sample weight when mortel>0")
+    parser.add_argument("--random-state", type=int, default=42, help="Random seed")
     parser.add_argument(
         "--weather-csv",
         default=None,
         help=(
             "Optional local weather CSV with columns: "
-            "date,mean_temp_c,min_temp_c,max_temp_c,total_precip_mm,total_snow_cm."
+            "date,mean_temp_c,min_temp_c,max_temp_c,total_precip_mm,total_snow_cm"
         ),
     )
 
@@ -1010,6 +903,9 @@ def parse_args() -> TrainingConfig:
         end_date=args.end_date,
         eval_days=args.eval_days,
         inner_eval_days=args.inner_eval_days,
+        weather_history_days=args.weather_history_days,
+        grave_weight=args.grave_weight,
+        mortel_weight=args.mortel_weight,
         random_state=args.random_state,
         weather_csv=Path(args.weather_csv) if args.weather_csv else None,
     )
@@ -1022,22 +918,17 @@ def _print_summary(summary: Dict[str, Any]) -> None:
         f"Test rows: {summary['data']['n_rows_test']} | "
         f"Date range: {summary['data']['date_min']} -> {summary['data']['date_max']}"
     )
+    target_metrics = summary["metrics"]["total"]
+    selected = target_metrics.get("selected_candidate", "n/a")
+    model = target_metrics["model"]
+    calendar = target_metrics["baseline_calendar"]
+    global_base = target_metrics["baseline_global"]
     print("Model selection + test metrics (MAE / RMSE):")
-    for target in ["leger", "grave", "mortel"]:
-        target_metrics = summary["metrics"][target]
-        selected = target_metrics.get("selected_candidate", "n/a")
-        model = target_metrics["model"]
-        baseline = target_metrics["baseline_weekday"]
-        baseline_roll = target_metrics.get("baseline_rolling7")
-        print(
-            f"  {target:7s} [{selected}] "
-            f"model {model['mae']:.3f}/{model['rmse']:.3f} | "
-            f"weekday {baseline['mae']:.3f}/{baseline['rmse']:.3f}"
-        )
-        if baseline_roll:
-            print(
-                f"           rolling7 {baseline_roll['mae']:.3f}/{baseline_roll['rmse']:.3f}"
-            )
+    print(
+        f"  total   [{selected}] model {model['mae']:.3f}/{model['rmse']:.3f} | "
+        f"calendar {calendar['mae']:.3f}/{calendar['rmse']:.3f} | "
+        f"global {global_base['mae']:.3f}/{global_base['rmse']:.3f}"
+    )
 
 
 if __name__ == "__main__":

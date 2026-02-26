@@ -54,6 +54,8 @@ services:
     container_name: mobility_api
     networks:
       - mobilitycopilot_net
+    ports:
+      - "1337:1337"
     volumes:
       - ./data/db:/app/data/db  # SQLite database
       - ./chromadb:/app/chromadb  # ChromaDB data (shared with chromadb service)
@@ -73,7 +75,7 @@ services:
       - HF_HOME=/app/.cache/huggingface
       - TRANSFORMERS_CACHE=/app/.cache/huggingface
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:1337/docs"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:1337/docs')"]
       interval: 30s
       timeout: 10s
       retries: 3
