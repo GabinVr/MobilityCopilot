@@ -1610,7 +1610,7 @@ select:focus {
 }
 
 .btn-download:hover:not(:disabled) {
-  background-color: var(--accent-secondary);
+  background-color: var(--accent-hover);
   text-decoration: none;
 }
 

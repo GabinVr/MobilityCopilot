@@ -353,7 +353,7 @@ export function getApiClient(): ApiClient {
     const baseUrl =
       typeof window !== "undefined"
         ? "/api"
-        : process.env.BACKEND_API_URL || "http://localhost:8000/";
+        : process.env.BACKEND_API_URL || "http://localhost:1337/";
     apiClient = new ApiClient(baseUrl);
   }
   return apiClient;

@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 // Environment variables
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
-const BACKEND_API_URL = (process.env.BACKEND_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const BACKEND_API_URL = (process.env.BACKEND_API_URL || "http://localhost:1337").replace(/\/$/, "");
 
 // Check if Supabase is configured
 const isSupabaseConfigured = SUPABASE_URL && SUPABASE_ANON_KEY && 
@@ -472,7 +472,7 @@ const app = new Elysia()
       ? { startDate: startDateParam, endDate: endDateParam }
       : timeRangeToDates(timeRange);
 
-    const [heatmapRes, weatherRes] = await Promise.all([
+    const [heatmapRes] = await Promise.all([
       fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -482,32 +482,18 @@ const app = new Elysia()
             : timeRange,
           severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
         }),
-      }),
-      fetch(`${BACKEND_API_URL}/dashboard/weather-correlation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          start_date: dateRange.startDate,
-          end_date: dateRange.endDate,
-          frequency: "week",
-        }),
-      }),
-    ]);
+      })
+      ]);
 
     let heatmapData = null;
-    let weatherCorrelation = null;
+    //  let weatherCorrelation = null; // Not needed anymore
 
     if (heatmapRes.ok) {
       heatmapData = await heatmapRes.json();
     }
 
-    if (weatherRes.ok) {
-      weatherCorrelation = await weatherRes.json();
-    }
-
     return {
       heatmapData,
-      weatherCorrelation,
       userType: resolvedUserType,
     };
   })
@@ -1052,13 +1038,6 @@ function DashboardPage(userType: "public" | "municipality") {
             </div>
           </div>
 
-          <!-- Card 2: Weather Correlation -->
-          <div class="dashboard-card weather-card">
-            <h3>Corrélation Météo</h3>
-            <div id="weather-chart-container" class="chart-container">
-              <div class="placeholder">Chargement du graphique...</div>
-            </div>
-          </div>
 
           <!-- Card 3: Word Cloud -->
           <div class="dashboard-card wordcloud-card">

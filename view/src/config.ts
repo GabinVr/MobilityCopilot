@@ -71,7 +71,7 @@ function loadConfig(): Config {
       env: (env as "development" | "production" | "test") || "development",
     },
     backend: {
-      apiUrl: process.env.BACKEND_API_URL || "http://localhost:8000",
+      apiUrl: process.env.BACKEND_API_URL || "http://localhost:1337",
       timeout: parseInt(process.env.BACKEND_TIMEOUT || "30000"),
     },
     security: {

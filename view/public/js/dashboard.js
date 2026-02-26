@@ -28,7 +28,7 @@ function initializeDashboard() {
   // Initialize charts and maps
   initializeHeatmap();
   initializeWordCloud();
-  initializeWeatherChart();
+  // initializeWeatherChart(); // Commented out - weather chart removed
   initializeTrends();
   initializeWeeklyReports();
 }
@@ -46,7 +46,7 @@ async function loadDashboardData() {
 
     if (heatmapWeatherData) {
       updateHeatmapData(heatmapWeatherData.heatmapData);
-      updateWeatherChart(heatmapWeatherData.weatherCorrelation);
+      // updateWeatherChart(heatmapWeatherData.weatherCorrelation); // Commented out - weather chart removed
     }
 
     if (wordcloudData) {
@@ -123,7 +123,7 @@ function getFilterValues() {
 function showDashboardError() {
   const heatmap = document.getElementById("heatmap-container");
   const wordcloud = document.getElementById("wordcloud-container");
-  const weather = document.getElementById("weather-chart-container");
+  // const weather = document.getElementById("weather-chart-container");
   const trends = document.getElementById("trends-container");
   const weeklyReports = document.getElementById("weekly-reports-container");
 
@@ -131,7 +131,7 @@ function showDashboardError() {
 
   if (heatmap) heatmap.innerHTML = errorHTML;
   if (wordcloud) wordcloud.innerHTML = errorHTML;
-  if (weather) weather.innerHTML = errorHTML;
+  // if (weather) weather.innerHTML = errorHTML;
   if (trends) trends.innerHTML = errorHTML;
   if (weeklyReports) weeklyReports.innerHTML = errorHTML;
 }
@@ -255,18 +255,8 @@ function renderInsights(insights) {
 // ============ WEEKLY REPORTS DATA ============
 
 async function loadWeeklyReportsData() {
-  try {
-    const currentLang = window.currentLanguage || "fr";
-    // Test if endpoint is accessible by doing a HEAD request
-    const response = await fetch(
-      `/api/weekly-reports/${currentUserType}?language=${encodeURIComponent(currentLang)}`,
-      { method: "HEAD" }
-    );
-    return response.ok;
-  } catch (error) {
-    console.error("Error loading weekly reports data:", error);
-    return false;
-  }
+  // Always report available - validation happens on click
+  return true;
 }
 
 function updateWeeklyReportsData(available) {
@@ -335,6 +325,7 @@ function setupFilters() {
   const applyTrendsBtn = document.getElementById("apply-trends");
   const startDateInput = document.getElementById("start-date");
   const endDateInput = document.getElementById("end-date");
+  const trendsDateInput = document.getElementById("trends-date");
 
   if (startDateInput && endDateInput) {
     const startDate = new Date(2015, 0, 1);
@@ -348,12 +339,19 @@ function setupFilters() {
     }
   }
 
+  if (trendsDateInput) {
+    if (!trendsDateInput.value) {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      trendsDateInput.value = formatDateInput(oneWeekAgo);
+    }
+  }
+
   if (applyFiltersBtn) {
     applyFiltersBtn.addEventListener("click", async () => {
       const heatmapWeatherData = await loadHeatmapWeatherData();
       if (heatmapWeatherData) {
         updateHeatmapData(heatmapWeatherData.heatmapData);
-        updateWeatherChart(heatmapWeatherData.weatherCorrelation);
       }
     });
   }
@@ -539,98 +537,98 @@ function updateWordCloudData(data) {
 
 // ============ WEATHER CHART INITIALIZATION ============
 
-function initializeWeatherChart() {
-  const container = document.getElementById("weather-chart-container");
-  if (!container) return;
-  container.innerHTML = `
-    <div class="viz-placeholder">Chargement de la meteo...</div>
-  `;
-}
+// function initializeWeatherChart() {
+//   const container = document.getElementById("weather-chart-container");
+//   if (!container) return;
+//   container.innerHTML = `
+//     <div class="viz-placeholder">Chargement de la meteo...</div>
+//   `;
+// }
 
-function updateWeatherChart(data) {
-  const container = document.getElementById("weather-chart-container");
-  if (!container) return;
+// function updateWeatherChart(data) {
+//   const container = document.getElementById("weather-chart-container");
+//   if (!container) return;
 
-  if (!data || !Array.isArray(data.correlations) || data.correlations.length === 0) {
-    container.innerHTML = `
-      <div class="viz-placeholder">Aucune correlation disponible</div>
-    `;
-    return;
-  }
+//   if (!data || !Array.isArray(data.correlations) || data.correlations.length === 0) {
+//     container.innerHTML = `
+//       <div class="viz-placeholder">Aucune correlation disponible</div>
+//     `;
+//     return;
+//   }
 
-  const series = data.correlations.filter((p) => p.weather && p.collisions).slice(0, 16);
-  const temps = series.map((p) => p.weather.mean_temp_c ?? 0);
-  const collisions = series.map((p) => p.collisions.total || 0);
-  const minTemp = Math.min(...temps);
-  const maxTemp = Math.max(...temps);
-  const minColl = Math.min(...collisions);
-  const maxColl = Math.max(...collisions);
+//   const series = data.correlations.filter((p) => p.weather && p.collisions).slice(0, 16);
+//   const temps = series.map((p) => p.weather.mean_temp_c ?? 0);
+//   const collisions = series.map((p) => p.collisions.total || 0);
+//   const minTemp = Math.min(...temps);
+//   const maxTemp = Math.max(...temps);
+//   const minColl = Math.min(...collisions);
+//   const maxColl = Math.max(...collisions);
 
-  if (!series.length || maxColl === 0) {
-    container.innerHTML = `
-      <div class="viz-placeholder">Aucune collision pour la periode</div>
-    `;
-    return;
-  }
+//   if (!series.length || maxColl === 0) {
+//     container.innerHTML = `
+//       <div class="viz-placeholder">Aucune collision pour la periode</div>
+//     `;
+//     return;
+//   }
 
-  const width = 420;
-  const height = 260;
-  const padding = 36;
-  const innerW = width - padding * 2;
-  const innerH = height - padding * 2;
+//   const width = 420;
+//   const height = 260;
+//   const padding = 36;
+//   const innerW = width - padding * 2;
+//   const innerH = height - padding * 2;
 
-  const points = series.map((p, index) => {
-    const temp = p.weather.mean_temp_c ?? 0;
-    const total = p.collisions.total || 0;
-    const x = padding + ((temp - minTemp) / (maxTemp - minTemp || 1)) * innerW;
-    const y = padding + (1 - (total - minColl) / (maxColl - minColl || 1)) * innerH;
-    const delay = Math.min(1, index * 0.05);
-    return { x, y, temp, total, delay };
-  });
+//   const points = series.map((p, index) => {
+//     const temp = p.weather.mean_temp_c ?? 0;
+//     const total = p.collisions.total || 0;
+//     const x = padding + ((temp - minTemp) / (maxTemp - minTemp || 1)) * innerW;
+//     const y = padding + (1 - (total - minColl) / (maxColl - minColl || 1)) * innerH;
+//     const delay = Math.min(1, index * 0.05);
+//     return { x, y, temp, total, delay };
+//   });
 
-  const { slope, intercept } = linearRegression(points);
-  const lineX1 = padding;
-  const lineX2 = padding + innerW;
-  const lineY1 = padding + (1 - (slope * minTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
-  const lineY2 = padding + (1 - (slope * maxTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
+//   const { slope, intercept } = linearRegression(points);
+//   const lineX1 = padding;
+//   const lineX2 = padding + innerW;
+//   const lineY1 = padding + (1 - (slope * minTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
+//   const lineY2 = padding + (1 - (slope * maxTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
 
-  const dots = points
-    .map(
-      (p) => `
-        <circle class="weather-dot" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="5" style="animation-delay:${p.delay}s"></circle>
-      `
-    )
-    .join("");
+//   const dots = points
+//     .map(
+//       (p) => `
+//         <circle class="weather-dot" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="5" style="animation-delay:${p.delay}s"></circle>
+//       `
+//     )
+//     .join("");
 
-  container.innerHTML = `
-    <div class="weather-chart fade-in">
-      <svg class="weather-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
-        <line class="weather-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${padding + innerH}"></line>
-        <line class="weather-axis" x1="${padding}" y1="${padding + innerH}" x2="${padding + innerW}" y2="${padding + innerH}"></line>
-        <line class="weather-trend" x1="${lineX1.toFixed(2)}" y1="${lineY1.toFixed(2)}" x2="${lineX2.toFixed(2)}" y2="${lineY2.toFixed(2)}"></line>
-        ${dots}
-        <text class="weather-axis-label" x="${padding}" y="${padding - 10}">Collisions</text>
-        <text class="weather-axis-label" x="${padding + innerW}" y="${padding + innerH + 26}" text-anchor="end">Temperature moyenne (°C)</text>
-      </svg>
-    </div>
-  `;
-}
+//   container.innerHTML = `
+//     <div class="weather-chart fade-in">
+//       <svg class="weather-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+//         <line class="weather-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${padding + innerH}"></line>
+//         <line class="weather-axis" x1="${padding}" y1="${padding + innerH}" x2="${padding + innerW}" y2="${padding + innerH}"></line>
+//         <line class="weather-trend" x1="${lineX1.toFixed(2)}" y1="${lineY1.toFixed(2)}" x2="${lineX2.toFixed(2)}" y2="${lineY2.toFixed(2)}"></line>
+//         ${dots}
+//         <text class="weather-axis-label" x="${padding}" y="${padding - 10}">Collisions</text>
+//         <text class="weather-axis-label" x="${padding + innerW}" y="${padding + innerH + 26}" text-anchor="end">Temperature moyenne (°C)</text>
+//       </svg>
+//     </div>
+//   `;
+// }
 
-function linearRegression(points) {
-  const n = points.length;
-  const xs = points.map((p) => p.temp);
-  const ys = points.map((p) => p.total);
-  const sumX = xs.reduce((a, b) => a + b, 0);
-  const sumY = ys.reduce((a, b) => a + b, 0);
-  const sumXY = xs.reduce((a, b, i) => a + b * ys[i], 0);
-  const sumX2 = xs.reduce((a, b) => a + b * b, 0);
+// function linearRegression(points) {
+//   const n = points.length;
+//   const xs = points.map((p) => p.temp);
+//   const ys = points.map((p) => p.total);
+//   const sumX = xs.reduce((a, b) => a + b, 0);
+//   const sumY = ys.reduce((a, b) => a + b, 0);
+//   const sumXY = xs.reduce((a, b, i) => a + b * ys[i], 0);
+//   const sumX2 = xs.reduce((a, b) => a + b * b, 0);
 
-  const denom = n * sumX2 - sumX * sumX || 1;
-  const slope = (n * sumXY - sumX * sumY) / denom;
-  const intercept = (sumY - slope * sumX) / n;
+//   const denom = n * sumX2 - sumX * sumX || 1;
+//   const slope = (n * sumXY - sumX * sumY) / denom;
+//   const intercept = (sumY - slope * sumX) / n;
 
-  return { slope, intercept };
-}
+//   return { slope, intercept };
+// }
 
 // ============ TRENDS INITIALIZATION ============
 
