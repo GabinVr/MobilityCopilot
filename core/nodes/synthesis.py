@@ -3,13 +3,12 @@ from utils.llm_provider import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-# def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
 def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     llm = get_llm()
 
     audience = config.get("configurable", {}).get("audience", "grand_public")
     if audience not in ["grand_public", "municipalite"]:
-        audience = "grand_public" # default fallback
+        audience = "grand_public"
 
     messages = state.get("messages", [])
     
