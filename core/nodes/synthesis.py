@@ -36,7 +36,7 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     You MUST cite the sources of your information using these links as references when relevant.
     https://donnees.montreal.ca/dataset/requete-311
     https://www.donneesquebec.ca/recherche/dataset/vmtl-collisions-routieres
-    https://www.stm.info/fr/a-propos/developpeurs/description-des-donneesdisponibles
+    https://www.stm.info
     And for weather data: 
     https://api.weather.gc.ca/
 
