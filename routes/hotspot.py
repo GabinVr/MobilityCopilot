@@ -15,8 +15,10 @@ def generate_all_weekly_reports_endpoint():
     try:
         hebdo_hotspots_briefing_generator()
         hebdo_weak_signals_briefing_generator()
+
         return {
             "status": "ok",
+            "generated_types": ["hotspot", "weak_signal"],
             "reports": get_all_last_weekly_reports(),
         }
     except Exception as exc:
