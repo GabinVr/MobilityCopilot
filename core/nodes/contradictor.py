@@ -36,6 +36,7 @@ def contradictor_node(state: CopilotState) -> CopilotState:
     1. Be constructive, analytical, and concise (maximum 2-3 sentences per section).
     2. Speak in a clear manner for a general audience. Avoid technical jargon like 'SQL' or 'database'.
     3. Always reply in the user's language ({language}).
+    4. You can add sources if it's relevant.
     """
 
     prompt_context = f"""
