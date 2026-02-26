@@ -8,9 +8,10 @@ class CopilotState(TypedDict):
     # instead of overwriting the history. This is crucial for the chat interface.
     messages: Annotated[List[AnyMessage], add_messages]
     
-    question: str # The original user question, for easy access in all nodes without parsing the message history.
     language: str # Track the user's language for consistent responses.
-
+    questions_history: List[str] # Keep a history of all user questions for context and potential retrieval.
+    question: str # The current question being processed, for easy access in nodes without parsing the message history.
+    
     # Track who we are talking to: "grand_public" vs "municipalite"
     # audience: str # --> moved to config RunnableConfig since it's more of a session-level parameter than part of the evolving state.
     
