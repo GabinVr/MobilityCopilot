@@ -15,7 +15,7 @@ def memory_cleaning_node(state: CopilotState) -> CopilotState:
         is_trash = False
 
         if msg == messages[-1]:
-            break
+            is_trash = False
 
         if isinstance(msg, ToolMessage) and msg.id:
             is_trash = True
@@ -27,7 +27,7 @@ def memory_cleaning_node(state: CopilotState) -> CopilotState:
                     
         elif isinstance(msg, HumanMessage) and msg.id:
             if "SQL execution successful" in msg.content:
-                    is_trash = True
+                is_trash = True
 
         if is_trash:
             messages_to_remove.append(RemoveMessage(id=msg.id))

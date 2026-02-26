@@ -10,7 +10,8 @@ class CopilotState(TypedDict):
     
     language: str # Track the user's language for consistent responses.
     questions_history: List[str] # Keep a history of all user questions for context and potential retrieval.
-
+    question: str # The current question being processed, for easy access in nodes without parsing the message history.
+    
     # Track who we are talking to: "grand_public" vs "municipalite"
     # audience: str # --> moved to config RunnableConfig since it's more of a session-level parameter than part of the evolving state.
     
