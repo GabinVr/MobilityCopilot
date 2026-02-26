@@ -6,24 +6,29 @@ from utils.llm_provider import get_llm
 from core.tools.tools_api_weather_now import geomet_mtl_weather_text_bundle
 from core.tools.tools_api_histo import geomet_mtl_history_global_tool
 from core.tools.sql_generator import sql_generator_tool
+import time
 
 def data_agent_node(state: CopilotState) -> CopilotState:
-    
-	llm = get_llm()
 
-	question = state.get("question", "No question found.")
-	messages = state.get("messages", [])
+    llm = get_llm()
 
-	tools = [geomet_mtl_weather_text_bundle, geomet_mtl_history_global_tool, sql_generator_tool]
-	llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
+    question = state.get("question", "No question found.")
+    messages = state.get("messages", [])
 
-	db_schema = state.get("database_schema", "No database schema found.")
-	querying_tips = state.get("querying_tips", "No querying tips found.")
-	table_descriptions = state.get("table_descriptions", "No table descriptions found.")
+    tools = [geomet_mtl_weather_text_bundle, geomet_mtl_history_global_tool, sql_generator_tool]
+    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
 
-	system_instruction = (
+    today = time.strftime("%Y-%m-%d")
+
+    db_schema = state.get("database_schema", "No database schema found.")
+    querying_tips = state.get("querying_tips", "No querying tips found.")
+    table_descriptions = state.get("table_descriptions", "No table descriptions found.")
+
+    system_instruction = (
 		"You are the Data Agent for Montreal Mobility.\n"
         "Your PRIMARY action is to find raw data using your available tools.\n\n"
+
+        "Assume that today is " + today + "so if the user asks for data with links to the current date, use this date in your queries.\n\n"
 
         "🚨 MANDATORY ACTION MAPPING 🚨\n"
         "1. SQL ONLY: IF the subject is 'collisions', 'accidents', 'potholes', 'requests 311' or 'sectors', YOU MUST USE THE 'generate_and_validate_sql' TOOL.\n"
@@ -64,6 +69,6 @@ def data_agent_node(state: CopilotState) -> CopilotState:
 		f"The question to answer is: {question}\n\n"
 		)
     
-	response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + messages)
+    response = llm_with_tools.invoke([SystemMessage(content=system_instruction)] + messages)
     
-	return {"messages": [response]}
+    return {"messages": [response]}
