@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from cache import cache
 from data.dashboard_queries import CollisionHeatMapQuery
@@ -14,13 +15,14 @@ async def collision_heatmap_endpoint(request: CollisionHeatMapRequest):
     """
     try:
         query = CollisionHeatMapQuery()
-        result = query.execute(
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: query.execute(
             time_range=request.time_range,
             severity_filter=request.severity_filter,
             death_nb=request.death_nb,
             severely_injured_nb=request.severely_injured_nb,
             lightly_injured_nb=request.lightly_injured_nb
-        )
+        ))
         return CollisionHeatMapResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

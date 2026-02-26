@@ -44,8 +44,8 @@ async def _cache_response_background(query: str,
 @chat_router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
     try:
+        logger.info(f"[BACKEND DEBUG] 🔴 thread_id reçu du BFF: {request.thread_id or 'AUCUN (None)'}")
         # WARNING: This caching logic does not take into account the audience !
-        # Try to use cache, but don't fail if cache is unavailable
         cached = None
         try:
             cached = get_semantic_cache().lookup(request.query, llm_string=get_llm_name()) 
@@ -60,6 +60,7 @@ async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
                                 contradictor_notes=cached[1].text if len(cached) > 1 else None)
 
         thread_id = request.thread_id or str(uuid.uuid4())
+        logger.info(f"[BACKEND DEBUG] 🔴 thread_id utilisé pour cette requête: {thread_id} ({'existant' if request.thread_id else 'NOUVEAU généré'})")
         
         config: RunnableConfig = {
             "configurable": {"thread_id": thread_id, "audience": request.audience}
@@ -112,14 +113,18 @@ async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
         logger.info(f"Normal response: {analytical_response[:100]}...")
         
         # Cache the result in background (non-blocking) - this doesn't delay the API response
-        asyncio.create_task(_cache_response_background(
-            request.query, 
-            analytical_response, 
-            contradictor_notes or "",
-            get_llm_name(),
-            clarification_options=final_state.get("clarification_options")
-        ))
-        
+        # Only cache if it is not ambiguous or an error or if the message is long enough (to avoid caching very short/empty responses)
+        if not final_state.get("is_ambiguous") and analytical_response and len(analytical_response) > 20:
+            asyncio.create_task(_cache_response_background(
+                request.query, 
+                analytical_response, 
+                contradictor_notes or "",
+                get_llm_name(),
+                clarification_options=final_state.get("clarification_options")
+            ))
+            logger.debug(f"Background caching task created for thread: {thread_id}")
+            
+        logger.info(f"[BACKEND DEBUG] 🔴 thread_id retourné dans la réponse: {thread_id}")
         return ChatResponse(
             answer=analytical_response,
             thread_id=thread_id,

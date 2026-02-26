@@ -328,13 +328,11 @@ const app = new Elysia()
 
   // API Routes for Chat/Dashboard updates
   .post("/api/chat", async ({ body, request }) => {
-    const { message, selectedOption, thread_id: bodyThreadId } = body as { message?: string; selectedOption?: string; thread_id?: string };
+    const { message, selectedOption } = body as { message?: string; selectedOption?: string };
     const userType = await resolveUserType(request);
     const audience = userType === "municipality" ? "municipalite" : "grand_public";
     const cookies = request?.headers.get("cookie") || "";
-    const cookieThreadId = getCookieValue(cookies, "chat_thread_id") || undefined;
-    // Use body thread_id as fallback if cookie is not available
-    const threadId = cookieThreadId || bodyThreadId || undefined;
+    const threadId = getCookieValue(cookies, "chat_thread_id") || undefined;
 
     // Use selectedOption if provided (user clicked on clarification), otherwise use message
     const queryText = selectedOption || message || "";
@@ -369,7 +367,12 @@ const app = new Elysia()
         );
       }
 
-      const data = await response.json();
+      const data = await response.json() as {
+        answer?: string;
+        thread_id?: string;
+        is_ambiguous?: boolean;
+        contradictor_notes?: string;
+      };
       
       if (data.is_ambiguous) {
         // Parse options from answer (newline-separated string)
@@ -407,8 +410,10 @@ const app = new Elysia()
       } else {
         // Normal response
         const answer = data.answer || "Réponse vide";
-        const notes = data.contradictor_notes 
-          ? `<div class="warning-note">⚠️ ${data.contradictor_notes}</div>` 
+        const rawNotes = data.contradictor_notes || "";
+        const escapedNotes = rawNotes.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const notes = rawNotes
+          ? `<div class="warning-note"><div class="markdown-source" style="display:none;">⚠️ ${escapedNotes}</div><div class="markdown-rendered"></div></div>` 
           : "";
         
         // Escape HTML entities to prevent XSS in raw markdown
@@ -478,42 +483,25 @@ const app = new Elysia()
       ? { startDate: startDateParam, endDate: endDateParam }
       : timeRangeToDates(timeRange);
 
-    const [heatmapRes, weatherRes] = await Promise.all([
-      fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          time_range: startDateParam && endDateParam
-            ? `${startDateParam} to ${endDateParam}`
-            : timeRange,
-          severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
-        }),
+    const heatmapRes = await fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        time_range: startDateParam && endDateParam
+          ? `${startDateParam} to ${endDateParam}`
+          : timeRange,
+        severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
       }),
-      fetch(`${BACKEND_API_URL}/dashboard/weather-correlation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          start_date: dateRange.startDate,
-          end_date: dateRange.endDate,
-          frequency: "week",
-        }),
-      }),
-    ]);
+    });
 
     let heatmapData = null;
-    let weatherCorrelation = null;
 
     if (heatmapRes.ok) {
       heatmapData = await heatmapRes.json();
     }
 
-    if (weatherRes.ok) {
-      weatherCorrelation = await weatherRes.json();
-    }
-
     return {
       heatmapData,
-      weatherCorrelation,
       userType: resolvedUserType,
     };
   })
@@ -566,6 +554,109 @@ const app = new Elysia()
     }
   })
 
+  // Endpoint for trends
+  .get("/api/trends/:userType", async ({ params, request }) => {
+    const resolvedUserType = await resolveUserType(request);
+    const { userType } = params as { userType: "public" | "municipality" };
+
+    const url = new URL(request.url);
+    const asOfDate = url.searchParams.get("as_of_date") || undefined;
+
+    if (userType !== resolvedUserType) {
+      return new Response(
+        JSON.stringify({ message: "Forbidden" }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    try {
+      const trendsRes = await fetch(`${BACKEND_API_URL}/dashboard/trends`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          as_of_date: asOfDate || null,
+        }),
+      });
+
+      if (!trendsRes.ok) {
+        const errorText = await trendsRes.text();
+        return new Response(
+          JSON.stringify({ message: "Erreur backend trends", detail: errorText }),
+          {
+            status: trendsRes.status,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      return await trendsRes.json();
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ message: "Erreur backend" }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+  })
+
+  // Endpoint for weekly report PDF download
+  .get("/api/weekly-reports/:userType", async ({ params, request }) => {
+    const resolvedUserType = await resolveUserType(request);
+    const { userType } = params as { userType: "public" | "municipality" };
+
+    const url = new URL(request.url);
+    const language = url.searchParams.get("language") || "fr";
+
+    if (userType !== resolvedUserType) {
+      return new Response(
+        JSON.stringify({ message: "Forbidden" }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    try {
+      const reportRes = await fetch(
+        `${BACKEND_API_URL}/last_weekly_report?language=${encodeURIComponent(language)}`
+      );
+
+      if (!reportRes.ok) {
+        const errorText = await reportRes.text();
+        return new Response(errorText, {
+          status: reportRes.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const pdfBuffer = await reportRes.arrayBuffer();
+      const normalizedLang = language.trim().toLowerCase().startsWith("en") ? "en" : "fr";
+      const filename = `weekly_report_${normalizedLang}.pdf`;
+
+      return new Response(pdfBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+        },
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ message: "Erreur backend" }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+  })
+
   // Backward compatibility endpoint - combines heatmap-weather and wordcloud
   .get("/api/dashboard-data/:userType", async ({ params, request }) => {
     const resolvedUserType = await resolveUserType(request);
@@ -596,7 +687,7 @@ const app = new Elysia()
       : timeRangeToDates(timeRange);
 
     try {
-      const [heatmapRes, weatherRes, wordCloudRes] = await Promise.all([
+      const [heatmapRes, wordCloudRes] = await Promise.all([
         fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -605,15 +696,6 @@ const app = new Elysia()
               ? `${startDateParam} to ${endDateParam}`
               : timeRange,
             severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
-          }),
-        }),
-        fetch(`${BACKEND_API_URL}/dashboard/weather-correlation`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            start_date: dateRange.startDate,
-            end_date: dateRange.endDate,
-            frequency: "week",
           }),
         }),
         fetch(`${BACKEND_API_URL}/dashboard/wordcloud-311`, {
@@ -627,15 +709,10 @@ const app = new Elysia()
       ]);
 
       let heatmapData = null;
-      let weatherCorrelation = null;
       let wordCloudData = null;
 
       if (heatmapRes.ok) {
         heatmapData = await heatmapRes.json();
-      }
-
-      if (weatherRes.ok) {
-        weatherCorrelation = await weatherRes.json();
       }
 
       if (wordCloudRes.ok) {
@@ -645,7 +722,6 @@ const app = new Elysia()
       return {
         heatmapData,
         wordCloudData,
-        weatherCorrelation,
         userType: resolvedUserType,
       };
     } catch (error) {
@@ -902,7 +978,6 @@ function DashboardPage(userType: "public" | "municipality") {
 
         <div class="chat-input-area">
           <form id="chat-form" hx-post="/api/chat" hx-target="#chat-history" hx-swap="beforeend" class="chat-form">
-            <input type="hidden" name="thread_id" id="chat-thread-id" value="" />
             <input 
               type="text" 
               name="message" 
@@ -964,15 +1039,7 @@ function DashboardPage(userType: "public" | "municipality") {
             </div>
           </div>
 
-          <!-- Card 2: Weather Correlation -->
-          <div class="dashboard-card weather-card">
-            <h3>Corrélation Météo</h3>
-            <div id="weather-chart-container" class="chart-container">
-              <div class="placeholder">Chargement du graphique...</div>
-            </div>
-          </div>
-
-          <!-- Card 3: Word Cloud -->
+          <!-- Card 2: Word Cloud -->
           <div class="dashboard-card wordcloud-card">
             <div class="card-header-row">
               <h3>Requêtes 311</h3>

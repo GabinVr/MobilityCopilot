@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from cache import cache
 from data.dashboard_queries import WordCloudQuery311
@@ -13,7 +14,8 @@ async def wordcloud_311_endpoint(request: WordCloudRequest):
     """
     try:
         query = WordCloudQuery311()
-        result = query.execute(top_n=request.top_n, time_range=request.time_range)
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: query.execute(top_n=request.top_n, time_range=request.time_range))
         return WordCloudResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

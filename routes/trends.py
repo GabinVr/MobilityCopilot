@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from cache import cache
 from data.trend import TrendQuery
@@ -11,7 +12,8 @@ async def trends_endpoint(request: TrendRequest):
     """Générer un rapport de tendances mobilité (collisions + requêtes 311)."""
     try:
         query = TrendQuery()
-        result = query.execute(as_of_date=request.as_of_date)
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: query.execute(as_of_date=request.as_of_date))
         return TrendResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

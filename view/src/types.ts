@@ -100,7 +100,6 @@ export interface WeatherCorrelationPoint {
 export interface DashboardData {
   heatmapData: HeatmapData[];
   wordCloudData: WordCloudWord[];
-  weatherCorrelation: WeatherCorrelationPoint[];
   userType: UserType;
 }
 

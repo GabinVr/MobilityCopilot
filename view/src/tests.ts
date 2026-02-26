@@ -100,7 +100,6 @@ describe("Dashboard Data API", () => {
     const data = await response.json();
     expect(data.heatmapData).toBeDefined();
     expect(data.wordCloudData).toBeDefined();
-    expect(data.weatherCorrelation).toBeDefined();
     expect(data.userType).toBe("public");
   });
 

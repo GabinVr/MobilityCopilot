@@ -6,6 +6,9 @@ let heatmapLayer = null;
 
 // Initialize on page load
 document.addEventListener("DOMContentLoaded", function () {
+  // Clear chat thread cookie on page load to start a fresh conversation
+  document.cookie = "chat_thread_id=; Path=/; Max-Age=0";
+
   const bodyUserType = document.body?.dataset?.userType;
   if (bodyUserType === "municipality") {
     currentUserType = "municipality";
@@ -37,32 +40,39 @@ function initializeDashboard() {
 
 // ============ LOAD DASHBOARD DATA ============
 
-async function loadDashboardData() {
-  try {
-    const heatmapWeatherData = await loadHeatmapWeatherData();
-    const wordcloudData = await loadWordcloudData();
-    const trendsData = await loadTrendsData();
-    const weeklyReportsData = await loadWeeklyReportsData();
+function loadDashboardData() {
+  loadHeatmapWeatherData()
+    .then((data) => {
+      updateHeatmapData(data ? data.heatmapData : null);
+    })
+    .catch((error) => {
+      console.error("Error loading heatmap/weather data:", error);
+      const container = document.getElementById("heatmap-container");
+      if (container) container.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+    });
 
-    if (heatmapWeatherData) {
-      updateHeatmapData(heatmapWeatherData.heatmapData);
-      // updateWeatherChart(heatmapWeatherData.weatherCorrelation); // Commented out - weather chart removed
-    }
+  loadWordcloudData()
+    .then((data) => {
+      updateWordCloudData(data ? data.wordCloudData : null);
+    })
+    .catch((error) => {
+      console.error("Error loading wordcloud data:", error);
+      const container = document.getElementById("wordcloud-container");
+      if (container) container.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+    });
 
-    if (wordcloudData) {
-      updateWordCloudData(wordcloudData.wordCloudData);
-    }
+  loadTrendsData()
+    .then((data) => {
+      if (data) updateTrendsData(data);
+    })
+    .catch((error) => {
+      console.error("Error loading trends data:", error);
+      const container = document.getElementById("trends-container");
+      if (container) container.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+    });
 
-    if (trendsData) {
-      updateTrendsData(trendsData);
-    }
-
-    // Always update weekly reports, even if null (will show placeholder)
-    updateWeeklyReportsData(weeklyReportsData);
-  } catch (error) {
-    console.error("Error loading dashboard data:", error);
-    showDashboardError();
-  }
+  // Weekly reports widget is instant (no real API call)
+  updateWeeklyReportsData(true);
 }
 
 async function loadHeatmapWeatherData() {
@@ -684,6 +694,8 @@ function setupChatMessageHandling() {
   chatForm.addEventListener("htmx:beforeSend", function (e) {
     const input = this.querySelector(".chat-input");
     const message = input.value.trim();
+    console.log(`[BROWSER DEBUG] 🟢 Envoi message: "${message.substring(0, 50)}"`);
+    console.log(`[BROWSER DEBUG] 🟢 Cookies visibles par JS: ${document.cookie || "AUCUN"}`);
 
     if (message) {
       // Affiche le message utilisateur immédiatement
@@ -702,8 +714,27 @@ function setupChatMessageHandling() {
     removeLoadingAnimation();
   });
 
+  // Intercepte la réponse HTMX pour lire les headers
+  chatForm.addEventListener("htmx:afterRequest", function (e) {
+    const xhr = e.detail.xhr;
+    if (xhr) {
+      const threadHeader = xhr.getResponseHeader("X-Chat-Thread-Id");
+      console.log(`[BROWSER DEBUG] 🟢 Header X-Chat-Thread-Id reçu: ${threadHeader || "ABSENT"}`);
+      console.log(`[BROWSER DEBUG] 🟢 Tous les headers de réponse:\n${xhr.getAllResponseHeaders()}`);
+      console.log(`[BROWSER DEBUG] 🟢 Cookies après réponse: ${document.cookie || "AUCUN"}`);
+    } else {
+      console.log(`[BROWSER DEBUG] ⚠️ Pas d'objet XHR disponible dans htmx:afterRequest`);
+    }
+  });
+
   // Nettoie après la réponse et traite les nouvelles réponses
   chatForm.addEventListener("htmx:afterSwap", function (e) {
+    // Debug: vérifie le data-thread-id dans la réponse HTML
+    const aiMessages = document.querySelectorAll(".chat-message.ai[data-thread-id]");
+    const lastAiMsg = aiMessages.length > 0 ? aiMessages[aiMessages.length - 1] : null;
+    const threadIdFromHtml = lastAiMsg?.getAttribute("data-thread-id");
+    console.log(`[BROWSER DEBUG] 🟢 thread_id dans data-attr HTML: ${threadIdFromHtml || "AUCUN"}`);
+    
     // Réinitialise le formulaire
     this.reset();
     
@@ -805,15 +836,6 @@ function processNewChatMessages() {
   aiMessages.forEach((messageDiv) => {
     messageDiv.dataset.processed = "true";
     
-    // Extract thread_id from response and store in hidden input
-    const threadId = messageDiv.dataset.threadId;
-    if (threadId) {
-      const hiddenInput = document.getElementById("chat-thread-id");
-      if (hiddenInput) {
-        hiddenInput.value = threadId;
-      }
-    }
-    
     // Process markdown in message content
     const markdownSource = messageDiv.querySelector(".markdown-source");
     const markdownRendered = messageDiv.querySelector(".markdown-rendered");
@@ -844,9 +866,33 @@ function processNewChatMessages() {
       }
     }
     
-    // Find and convert .warning-note to <details>
+    // Find and convert .warning-note to <details> with markdown rendering
     const warningNotes = messageDiv.querySelectorAll(".warning-note");
     warningNotes.forEach((warningNote) => {
+      // Process markdown inside warning-note if it has markdown-source
+      const noteMarkdownSource = warningNote.querySelector(".markdown-source");
+      const noteMarkdownRendered = warningNote.querySelector(".markdown-rendered");
+      
+      if (noteMarkdownSource && noteMarkdownRendered && noteMarkdownSource.textContent) {
+        try {
+          const markedLib2 = window.marked;
+          const DOMPurify2 = window.DOMPurify;
+          const parseFn2 = markedLib2
+            ? (markedLib2.parse ? markedLib2.parse.bind(markedLib2) : (markedLib2.marked ? markedLib2.marked.parse.bind(markedLib2.marked) : null))
+            : null;
+          
+          if (parseFn2 && DOMPurify2) {
+            const noteHtml = parseFn2(noteMarkdownSource.textContent);
+            noteMarkdownRendered.innerHTML = DOMPurify2.sanitize(noteHtml);
+          } else {
+            noteMarkdownRendered.innerHTML = noteMarkdownSource.textContent.replace(/\n/g, '<br>');
+          }
+        } catch (err) {
+          console.error("Error processing contradictor note markdown:", err);
+          noteMarkdownRendered.innerHTML = noteMarkdownSource.textContent.replace(/\n/g, '<br>');
+        }
+      }
+
       const details = document.createElement("details");
       details.className = "contradictory-notes-dropdown";
       
@@ -857,7 +903,12 @@ function processNewChatMessages() {
       
       const content = document.createElement("div");
       content.className = "contradictory-notes-content";
-      content.innerHTML = warningNote.innerHTML;
+      // Use rendered markdown content if available
+      if (noteMarkdownRendered && noteMarkdownRendered.innerHTML) {
+        content.innerHTML = noteMarkdownRendered.innerHTML;
+      } else {
+        content.innerHTML = warningNote.innerHTML;
+      }
       
       details.appendChild(summary);
       details.appendChild(content);

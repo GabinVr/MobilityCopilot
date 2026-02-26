@@ -61,7 +61,6 @@ export const translations = {
     // Dashboard Cards
     collisionMap: "Collision Map",
     loadingMap: "Loading map...",
-    weatherCorrelation: "Weather Correlation",
     loadingChart: "Loading chart...",
     requests311: "311 Requests",
     lastWeek: "Last Week",
@@ -150,7 +149,6 @@ export const translations = {
     // Dashboard Cards
     collisionMap: "Carte des Collisions",
     loadingMap: "Chargement de la carte...",
-    weatherCorrelation: "Corrélation Météo",
     loadingChart: "Chargement du graphique...",
     requests311: "Requêtes 311",
     lastWeek: "Dernière semaine",
