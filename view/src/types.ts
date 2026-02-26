@@ -171,3 +171,35 @@ export interface SortOptions {
   field: string;
   direction: "asc" | "desc";
 }
+// ============ TRENDS ============
+
+export interface MonthlyCollisionsData {
+  months: string[];
+  values: number[];
+}
+
+export interface PedestrianComparisonData {
+  "3m": number;
+  last_year: number;
+}
+
+export interface HourlyPeakShiftData {
+  description: string;
+  previous_peak: string;
+  current_peak: string;
+}
+
+export interface TrendsData {
+  generated_at: string;
+  as_of_date: string;
+  monthly_collisions: MonthlyCollisionsData;
+  pedestrian_3m_vs_last_year: PedestrianComparisonData;
+  hourly_peak_shift: HourlyPeakShiftData;
+  weekly_311_changes: Record<string, any>;
+  weak_signals_311: Record<string, any>;
+  insights: string[];
+}
+
+// ============ WEEKLY REPORTS ============
+// Note: PDF is served directly by /last_weekly_report endpoint
+// No separate response type needed as response is a binary file

@@ -29,6 +29,8 @@ function initializeDashboard() {
   initializeHeatmap();
   initializeWordCloud();
   initializeWeatherChart();
+  initializeTrends();
+  initializeWeeklyReports();
 }
 
 // ============ MODE DISPLAY ============
@@ -39,6 +41,8 @@ async function loadDashboardData() {
   try {
     const heatmapWeatherData = await loadHeatmapWeatherData();
     const wordcloudData = await loadWordcloudData();
+    const trendsData = await loadTrendsData();
+    const weeklyReportsData = await loadWeeklyReportsData();
 
     if (heatmapWeatherData) {
       updateHeatmapData(heatmapWeatherData.heatmapData);
@@ -48,6 +52,13 @@ async function loadDashboardData() {
     if (wordcloudData) {
       updateWordCloudData(wordcloudData.wordCloudData);
     }
+
+    if (trendsData) {
+      updateTrendsData(trendsData);
+    }
+
+    // Always update weekly reports, even if null (will show placeholder)
+    updateWeeklyReportsData(weeklyReportsData);
   } catch (error) {
     console.error("Error loading dashboard data:", error);
     showDashboardError();
@@ -113,21 +124,215 @@ function showDashboardError() {
   const heatmap = document.getElementById("heatmap-container");
   const wordcloud = document.getElementById("wordcloud-container");
   const weather = document.getElementById("weather-chart-container");
+  const trends = document.getElementById("trends-container");
+  const weeklyReports = document.getElementById("weekly-reports-container");
 
-  if (heatmap) {
-    heatmap.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+  const errorHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+
+  if (heatmap) heatmap.innerHTML = errorHTML;
+  if (wordcloud) wordcloud.innerHTML = errorHTML;
+  if (weather) weather.innerHTML = errorHTML;
+  if (trends) trends.innerHTML = errorHTML;
+  if (weeklyReports) weeklyReports.innerHTML = errorHTML;
+}
+
+// ============ TRENDS DATA ============
+
+async function loadTrendsData() {
+  try {
+    const trendsDateInput = document.getElementById("trends-date");
+    const asOfDate = trendsDateInput?.value || new Date().toISOString().split("T")[0];
+
+    const response = await fetch(
+      `/api/trends/${currentUserType}?as_of_date=${encodeURIComponent(asOfDate)}`
+    );
+
+    if (!response.ok) {
+      throw new Error("Trends data request failed");
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error loading trends data:", error);
+    return null;
   }
-  if (wordcloud) {
-    wordcloud.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+}
+
+function updateTrendsData(data) {
+  const container = document.getElementById("trends-container");
+  if (!container) return;
+
+  try {
+    const html = `
+      <div class="trends-content">
+        <div class="trends-section">
+          <h4>Collision Mensuelles</h4>
+          <div id="trends-monthly-chart" class="trend-chart"></div>
+        </div>
+        <div class="trends-section">
+          <h4>Comparaison Piétons</h4>
+          <div id="trends-pedestrian-chart" class="trend-chart"></div>
+        </div>
+        <div class="trends-section">
+          <h4>Pic Horaire</h4>
+          <div id="trends-hourly-chart" class="trend-chart"></div>
+        </div>
+        <div class="trends-section">
+          <h4>Insights</h4>
+          <div id="trends-insights" class="trends-insights"></div>
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = html;
+
+    // Render charts if data exists
+    if (data.monthly_collisions) {
+      renderMonthlyCollisionsChart(data.monthly_collisions);
+    }
+    if (data.pedestrian_3m_vs_last_year) {
+      renderPedestrianChart(data.pedestrian_3m_vs_last_year);
+    }
+    if (data.hourly_peak_shift) {
+      renderHourlyPeakChart(data.hourly_peak_shift);
+    }
+    if (data.insights) {
+      renderInsights(data.insights);
+    }
+  } catch (error) {
+    console.error("Error updating trends data:", error);
+    container.innerHTML = `<div class="viz-placeholder">Erreur d'affichage des tendances</div>`;
   }
-  if (weather) {
-    weather.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+}
+
+function renderMonthlyCollisionsChart(data) {
+  const chartDiv = document.getElementById("trends-monthly-chart");
+  if (!chartDiv || !window.Plotly) return;
+
+  const trace = {
+    x: data.months || [],
+    y: data.values || [],
+    type: "scatter",
+    mode: "lines+markers",
+    fill: "tozeroy",
+    line: { color: "var(--accent-primary)" },
+  };
+
+  Plotly.newPlot(chartDiv, [trace], { responsive: true, displayModeBar: false }, { responsive: true });
+}
+
+function renderPedestrianChart(data) {
+  const chartDiv = document.getElementById("trends-pedestrian-chart");
+  if (!chartDiv || !window.Plotly) return;
+
+  const trace = {
+    x: ["3M", "Année dernière"],
+    y: [data["3m"] || 0, data["last_year"] || 0],
+    type: "bar",
+    marker: { color: ["#3B82F6", "#10B981"] },
+  };
+
+  Plotly.newPlot(chartDiv, [trace], { responsive: true, displayModeBar: false }, { responsive: true });
+}
+
+function renderHourlyPeakChart(data) {
+  const chartDiv = document.getElementById("trends-hourly-chart");
+  if (!chartDiv) return;
+
+  chartDiv.innerHTML = `<div class="trend-text">${data.description || "Changement du pic horaire détecté"}</div>`;
+}
+
+function renderInsights(insights) {
+  const insightsDiv = document.getElementById("trends-insights");
+  if (!insightsDiv) return;
+
+  const insightsList = Array.isArray(insights) ? insights : [insights];
+  insightsDiv.innerHTML = insightsList
+    .map((insight) => `<div class="insight-item">• ${insight}</div>`)
+    .join("");
+}
+
+// ============ WEEKLY REPORTS DATA ============
+
+async function loadWeeklyReportsData() {
+  try {
+    const currentLang = window.currentLanguage || "fr";
+    // Test if endpoint is accessible by doing a HEAD request
+    const response = await fetch(
+      `/api/weekly-reports/${currentUserType}?language=${encodeURIComponent(currentLang)}`,
+      { method: "HEAD" }
+    );
+    return response.ok;
+  } catch (error) {
+    console.error("Error loading weekly reports data:", error);
+    return false;
+  }
+}
+
+function updateWeeklyReportsData(available) {
+  const container = document.getElementById("weekly-reports-container");
+  if (!container) return;
+
+  try {
+    const currentLang = window.currentLanguage || "fr";
+    const reportTitle = window.t ? window.t("hotspotsAndWeakSignals") : "Rapport Points Chauds & Signaux Faibles";
+    const downloadLabel = window.t ? window.t("downloadReport") : "Télécharger le Rapport PDF";
+    const sectionsLabel = window.t ? window.t("sections") : "Sections: Points Chauds et Signaux Faibles";
+    
+    if (!available) {
+      // Display disabled button when API fails or report unavailable
+      const unavailableMsg = window.t ? window.t("noReportAvailable") : "Rapport en cours de génération...";
+      const html = `
+        <div class="weekly-reports-content">
+          <div class="report-section">
+            <h4>${reportTitle}</h4>
+            <div class="report-body">
+              <p>${sectionsLabel}</p>
+              <div class="report-metadata">
+                <small>${unavailableMsg}</small>
+              </div>
+              <div class="report-actions">
+                <button class="btn-download" disabled title="${unavailableMsg}">
+                  📄 ${downloadLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      container.innerHTML = html;
+      return;
+    }
+    
+    // PDF endpoint serves file directly for download
+    const downloadUrl = `/api/weekly-reports/${currentUserType}?language=${encodeURIComponent(currentLang)}`;
+    const html = `
+      <div class="weekly-reports-content">
+        <div class="report-section">
+          <h4>${reportTitle}</h4>
+          <div class="report-body">
+            <p>${sectionsLabel}</p>
+            <div class="report-actions">
+              <a href="${downloadUrl}" download class="btn-download">
+                📄 ${downloadLabel}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = html;
+  } catch (error) {
+    console.error("Error updating weekly reports data:", error);
+    container.innerHTML = `<div class="viz-placeholder">${window.t ? window.t("reportError") : "Erreur lors du chargement du rapport."}</div>`;
   }
 }
 
 function setupFilters() {
   const applyFiltersBtn = document.getElementById("apply-filters");
   const applyWordcloudBtn = document.getElementById("apply-wordcloud");
+  const applyTrendsBtn = document.getElementById("apply-trends");
   const startDateInput = document.getElementById("start-date");
   const endDateInput = document.getElementById("end-date");
 
@@ -158,6 +363,15 @@ function setupFilters() {
       const wordcloudData = await loadWordcloudData();
       if (wordcloudData) {
         updateWordCloudData(wordcloudData.wordCloudData);
+      }
+    });
+  }
+
+  if (applyTrendsBtn) {
+    applyTrendsBtn.addEventListener("click", async () => {
+      const trendsData = await loadTrendsData();
+      if (trendsData) {
+        updateTrendsData(trendsData);
       }
     });
   }
@@ -418,6 +632,26 @@ function linearRegression(points) {
   return { slope, intercept };
 }
 
+// ============ TRENDS INITIALIZATION ============
+
+function initializeTrends() {
+  const container = document.getElementById("trends-container");
+  if (!container) return;
+  container.innerHTML = `
+    <div class="viz-placeholder">Chargement des tendances...</div>
+  `;
+}
+
+// ============ WEEKLY REPORTS INITIALIZATION ============
+
+function initializeWeeklyReports() {
+  const container = document.getElementById("weekly-reports-container");
+  if (!container) return;
+  container.innerHTML = `
+    <div class="viz-placeholder">Chargement des rapports...</div>
+  `;
+}
+
 // ============ HTMX INTERCEPTORS ============
 
 function setupHTMXInterceptors() {
@@ -470,10 +704,13 @@ function setupChatMessageHandling() {
     removeLoadingAnimation();
   });
 
-  // Nettoie après la réponse
+  // Nettoie après la réponse et traite les nouvelles réponses
   chatForm.addEventListener("htmx:afterSwap", function (e) {
     // Réinitialise le formulaire
     this.reset();
+    
+    // Traite les nouvelles réponses (contradictor notes, markdown, etc.)
+    processNewChatMessages();
     
     // Scroll vers le bas
     scrollChatToBottom();
@@ -498,6 +735,8 @@ function setupChatMessageHandling() {
   });
 
   document.addEventListener("htmx:afterSwap", function (e) {
+    // Traite les nouvelles réponses
+    processNewChatMessages();
     // Scroll vers le bas après la réponse
     scrollChatToBottom();
   });
@@ -553,7 +792,64 @@ function scrollChatToBottom() {
   }
 }
 
-// ============ BRIEFING MODAL ============
+/**
+ * Post-process new chat messages to:
+ * - Convert .warning-note elements to <details> dropdowns
+ * - Handle markdown formatting
+ */
+function processNewChatMessages() {
+  const chatHistory = document.getElementById("chat-history");
+  if (!chatHistory) return;
+
+  // Get all AI messages (most recent ones that were just added)
+  const aiMessages = chatHistory.querySelectorAll(".chat-message.ai:not([data-processed])");
+  
+  aiMessages.forEach((messageDiv) => {
+    messageDiv.dataset.processed = "true";
+    
+    // Process markdown in message content
+    const messageContent = messageDiv.querySelector(".message-content:not(.loading-dots)");
+    if (messageContent && messageContent.textContent) {
+      try {
+        // Parse markdown and sanitize
+        const marked = window.marked;
+        const DOMPurify = window.DOMPurify;
+        
+        if (marked && DOMPurify) {
+          const htmlContent = marked.parse(messageContent.textContent);
+          const cleanHtml = DOMPurify.sanitize(htmlContent);
+          messageContent.innerHTML = cleanHtml;
+        }
+      } catch (error) {
+        console.error("Error processing markdown:", error);
+        // Keep original text on error
+      }
+    }
+    
+    // Find and convert .warning-note to <details>
+    const warningNotes = messageDiv.querySelectorAll(".warning-note");
+    warningNotes.forEach((warningNote) => {
+      const details = document.createElement("details");
+      details.className = "contradictory-notes-dropdown";
+      
+      const summary = document.createElement("summary");
+      summary.className = "contradictory-notes-label";
+      // Use translated label
+      summary.textContent = window.t ? window.t("contradictorNotesLabel") : "L'assistant peut faire des erreurs, consultez les notes contradictoires";
+      
+      const content = document.createElement("div");
+      content.className = "contradictory-notes-content";
+      content.innerHTML = warningNote.innerHTML;
+      
+      details.appendChild(summary);
+      details.appendChild(content);
+      
+      // Replace the warning-note with the details element
+      warningNote.replaceWith(details);
+    });
+  });
+}
+
 
 function openBriefingModal() {
   const modal = document.getElementById("briefing-modal");

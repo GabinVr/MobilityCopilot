@@ -43,7 +43,7 @@ def get_repository() -> VectorRepository:
                 # With the `text-embedding-3` class
                 # of models, you can specify the size
                 # of the embeddings you want returned.
-                dimensions=1024
+                # dimensions=1024
             )
         COLLECTION_NAME = COLLECTION_NAME + "_openai"
         EMBEDDING_MODEL = "text-embedding-3-large"

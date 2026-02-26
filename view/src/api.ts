@@ -243,6 +243,26 @@ export class DashboardApi {
   }
 
   /**
+   * Get trends data
+   */
+  async getTrendsData(userType: string, filters = {}) {
+    const query = new URLSearchParams(filters).toString();
+    return this.client.get(
+      `/trends/${userType}${query ? "?" + query : ""}`
+    );
+  }
+
+  /**
+   * Get weekly reports
+   */
+  async getWeeklyReports(userType: string, filters = {}) {
+    const query = new URLSearchParams(filters).toString();
+    return this.client.get(
+      `/weekly-reports/${userType}${query ? "?" + query : ""}`
+    );
+  }
+
+  /**
    * Get word cloud data
    */
   async getWordCloudData(filters = {}) {

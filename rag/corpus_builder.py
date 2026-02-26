@@ -7,7 +7,9 @@ import json
 import logging
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_core.embeddings import Embeddings
+from langchain_chroma import Chroma
 from utils.chroma_client import ChromaClient
 
 logger = logging.getLogger(__name__)
@@ -89,10 +91,12 @@ class ChromaVectorRepository(VectorRepository):
         self.embeddings = embeddings
         self.client = ChromaClient(host=host, port=port)
         self.client.get_or_create_collection(collection_name)
+        self._vectorstore = None
 
     def clear(self) -> None:
         try:
             self.client.delete_collection(self.collection_name)
+            self._vectorstore = None
             logger.info(f"Collection '{self.collection_name}' cleared successfully.")
         except Exception:
             logger.info(f"Collection '{self.collection_name}' does not exist or could not be deleted. Proceeding with creation.")
@@ -104,25 +108,32 @@ class ChromaVectorRepository(VectorRepository):
             embedding=self.embeddings,
             collection_name=self.collection_name
         )
+        # Reset vectorstore so it's recreated on next query
+        self._vectorstore = None
         logger.info("Documents sauvegardés avec succès.")
 
-    def query(self, query_texts: List[str], n_results: int) -> List[Document]:
-        collection = self.client.get_or_create_collection(self.collection_name)
-        results = collection.query(
-            query_texts=query_texts,
-            n_results=n_results,
-            include=["documents", "metadatas"],
-        )
-        documents = (results.get("documents", []) or [[]])[0]
-        metadatas = (results.get("metadatas", []) or [[]])[0]
+    def _get_vectorstore(self) -> Chroma:
+        """Get or create the Langchain Chroma vectorstore with the correct embeddings."""
+        if self._vectorstore is None:
+            self._vectorstore = Chroma(
+                client=self.client.client,
+                collection_name=self.collection_name,
+                embedding_function=self.embeddings
+            )
+        return self._vectorstore
 
-        docs: List[Document] = []
-        for idx, content in enumerate(documents):
-            metadata = metadatas[idx] if idx < len(metadatas) else {}
-            docs.append(Document(page_content=content, metadata=metadata))
+    def query(self, query_texts: List[str], n_results: int) -> List[Document]:
+        vectorstore = self._get_vectorstore()
+        # Use similarity_search which handles embeddings correctly
+        docs = []
+        for query_text in query_texts:
+            results = vectorstore.similarity_search(query_text, k=n_results)
+            docs.extend(results)
         return docs
 
     def get_all_documents(self) -> List[Document]:
+        vectorstore = self._get_vectorstore()
+        # Get all documents from the collection
         collection = self.client.get_or_create_collection(self.collection_name)
         results = collection.get(include=["documents", "metadatas"])
         documents = results.get("documents", []) or []

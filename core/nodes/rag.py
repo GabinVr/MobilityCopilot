@@ -9,31 +9,18 @@ def get_cached_rag_context():
     Build and cache the RAG context with only JSON-serializable data.
     """
     documents = get_repository().get_all_documents()
-    db_schema_docs = []
-    sql_help_docs = []
-    business_docs = []
-    table_desc_docs = []
+    sources = {}
 
     # Build context grouped by `metadata.source` while keeping metadata for traceability.
     for doc in documents:
         meta = doc.metadata or {}
         source = str(meta.get("source") or "").strip().lower()
-
-        if source == "database_schema":
-            db_schema_docs.append((meta, doc.page_content))
-        elif source == "querying_tips":
-            sql_help_docs.append((meta, doc.page_content))
-        elif source == "business_rules":
-            business_docs.append((meta, doc.page_content))
-        elif source == "dataset_description":
-            table_desc_docs.append((meta, doc.page_content))
-
-    return {
-        "database_schema": db_schema_docs,
-        "querying_tips": sql_help_docs,
-        "business_rules": business_docs,
-        "table_descriptions": table_desc_docs,
-    }
+        if source not in sources:
+            sources[source] = [(meta, doc.page_content)]
+        else:
+            sources[source].append((meta, doc.page_content))
+        
+    return sources
 
 
 def rag_node(state: CopilotState) -> CopilotState:

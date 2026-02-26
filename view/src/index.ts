@@ -560,6 +560,101 @@ const app = new Elysia()
     }
   })
 
+  // Trends endpoint
+  .get("/api/trends/:userType", async ({ params, request }) => {
+    const resolvedUserType = await resolveUserType(request);
+    const { userType } = params as { userType: "public" | "municipality" };
+
+    if (userType !== resolvedUserType) {
+      return new Response(
+        JSON.stringify({ message: "Forbidden" }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const url = new URL(request.url);
+    const asOfDate = url.searchParams.get("as_of_date") || new Date().toISOString().split("T")[0];
+
+    try {
+      const response = await fetch(`${BACKEND_API_URL}/dashboard/trends`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          as_of_date: asOfDate,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Trends data request failed");
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error loading trends data:", error);
+      return new Response(
+        JSON.stringify({ error: "Failed to load trends data" }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+  })
+
+  // Weekly reports endpoint - proxies PDF download from backend
+  .get("/api/weekly-reports/:userType", async ({ params, request }) => {
+    const resolvedUserType = await resolveUserType(request);
+    const { userType } = params as { userType: "public" | "municipality" };
+
+    if (userType !== resolvedUserType) {
+      return new Response(
+        JSON.stringify({ message: "Forbidden" }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const url = new URL(request.url);
+    const language = url.searchParams.get("language") || "fr";
+
+    try {
+      const response = await fetch(
+        `${BACKEND_API_URL}/last_weekly_report?language=${encodeURIComponent(language)}`,
+        {
+          method: "GET",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Weekly report request failed");
+      }
+
+      // Proxy the response directly (PDF file)
+      const buffer = await response.arrayBuffer();
+      return new Response(buffer, {
+        status: response.status,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="weekly_report_${language}.pdf"`,
+        },
+      });
+    } catch (error) {
+      console.error("Error downloading weekly report:", error);
+      return new Response(
+        JSON.stringify({ error: "Failed to download weekly report" }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+  })
+
   // Backward compatibility endpoint - combines heatmap-weather and wordcloud
   .get("/api/dashboard-data/:userType", async ({ params, request }) => {
     const resolvedUserType = await resolveUserType(request);
@@ -689,7 +784,11 @@ function BaseLayout(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MobilityCopilot</title>
+    <script src="/public/js/language.js"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/marked@14.1.1"></script>
+    <script src="https://unpkg.com/dompurify@3.0.9"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <link rel="stylesheet" href="/public/css/style.css">
     <link rel="stylesheet" href="/public/css/colors-${userType}.css">
@@ -853,13 +952,32 @@ function SignupPage(props?: { error?: string }) {
 function DashboardPage(userType: "public" | "municipality") {
   const modeLabel = userType === "municipality" ? "Municipalité" : "Public";
   return BaseLayout(`
+    <!-- Mobile Tab Navigation -->
+    <div class="mobile-tabs">
+      <button class="tab-button active" data-tab="chat" onclick="switchMobileTab('chat')">
+        <span class="tab-icon">💬</span>
+        <span class="tab-label">Chat</span>
+      </button>
+      <button class="tab-button" data-tab="dashboard" onclick="switchMobileTab('dashboard')">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">Dashboard</span>
+      </button>
+    </div>
+
     <div class="dashboard-container">
       <!-- Left Panel: Chat -->
-      <div class="chat-panel">
+      <div class="chat-panel active-panel">
         <div class="chat-header">
           <h2>Assistant MobilityCopilot</h2>
-          <div class="mode-indicator">
-            <span class="toggle-label">Mode: <span id="mode-display">${modeLabel}</span></span>
+          <div class="chat-header-actions">
+            <div class="mode-indicator">
+              <span class="toggle-label">Mode: <span id="mode-display">${modeLabel}</span></span>
+            </div>
+            <form method="post" action="/auth/logout" class="logout-form-mobile">
+              <button class="btn-logout" type="submit">
+                Déconnexion
+              </button>
+            </form>
           </div>
         </div>
 
@@ -878,6 +996,7 @@ function DashboardPage(userType: "public" | "municipality") {
               name="message" 
               placeholder="Posez votre question..."
               class="chat-input"
+              autocomplete="off"
               required
             />
             <button type="submit" class="btn-send">
@@ -898,33 +1017,35 @@ function DashboardPage(userType: "public" | "municipality") {
           </form>
         </div>
 
-        <div class="dashboard-filters">
-          <div class="filter-group">
-            <label for="start-date" class="filter-label">Debut</label>
-            <input id="start-date" type="date" class="filter-input" />
-          </div>
-          <div class="filter-group">
-            <label for="end-date" class="filter-label">Fin</label>
-            <input id="end-date" type="date" class="filter-input" />
-          </div>
-          <div class="filter-group">
-            <label for="severity-filter" class="filter-label">Gravite</label>
-            <select id="severity-filter" class="filter-select">
-              <option value="all" selected>Toutes</option>
-              <option value="4">Mortel</option>
-              <option value="3">Grave</option>
-              <option value="2">Leger</option>
-              <option value="1">Dommages</option>
-              <option value="0">Materiel</option>
-            </select>
-          </div>
-          <button class="filter-button" id="apply-filters" type="button">Appliquer</button>
-        </div>
-
         <div class="dashboard-grid">
           <!-- Card 1: Heatmap -->
           <div class="dashboard-card heatmap-card">
-            <h3>Carte des Collisions</h3>
+            <div class="card-header-row">
+              <h3>Carte des Collisions</h3>
+            </div>
+            <div class="card-controls dashboard-filters">
+              <div class="filter-group">
+                <label for="start-date" class="filter-label">Debut</label>
+                <input id="start-date" type="date" class="filter-input" />
+              </div>
+              <div class="filter-group">
+                <label for="end-date" class="filter-label">Fin</label>
+                <input id="end-date" type="date" class="filter-input" />
+              </div>
+              <div class="filter-group">
+                <label for="severity-filter" class="filter-label">Gravite</label>
+                <select id="severity-filter" class="filter-select">
+                  <option value="all" selected>Toutes</option>
+                  <option value="4">Mortel</option>
+                  <option value="3">Grave</option>
+                  <option value="2">Leger</option>
+                  <option value="1">Dommages</option>
+                  <option value="0">Materiel</option>
+                </select>
+              </div>
+              <button class="filter-button" id="apply-filters" type="button">Appliquer</button>
+            </div>
+
             <div id="heatmap-container" class="map-container">
               <!-- Mapbox/Leaflet will be mounted here -->
               <div class="placeholder">Chargement de la carte...</div>
@@ -955,11 +1076,84 @@ function DashboardPage(userType: "public" | "municipality") {
               <div class="placeholder">Chargement du nuage de mots...</div>
             </div>
           </div>
+
+          <!-- Card 4: Trends -->
+          <div class="dashboard-card trends-card">
+            <h3>Tendances</h3>
+            <div class="trends-filters">
+              <input 
+                type="date" 
+                id="trends-date" 
+                class="filter-input" 
+                title="Date pour laquelle calculer les tendances"
+              />
+              <button class="filter-button subtle" id="apply-trends" type="button">Appliquer</button>
+            </div>
+            <div id="trends-container" class="chart-container">
+              <div class="placeholder">Chargement des tendances...</div>
+            </div>
+          </div>
+
+          <!-- Card 5: Weekly Reports -->
+          <div class="dashboard-card weekly-reports-card">
+            <h3>Rapports Hebdomadaires</h3>
+            <div id="weekly-reports-container" class="chart-container">
+              <div class="placeholder">Chargement des rapports...</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <script src="/public/js/dashboard.js?v=8"></script>
+    <script>
+      // Mobile tab switching
+      function switchMobileTab(tabName) {
+        // Update button states
+        document.querySelectorAll('.tab-button').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+        
+        // Show/hide panels
+        const chatPanel = document.querySelector('.chat-panel');
+        const dashboardPanel = document.querySelector('.dashboard-panel');
+        
+        if (tabName === 'chat') {
+          chatPanel.classList.add('active-panel');
+          dashboardPanel.classList.remove('active-panel');
+        } else {
+          chatPanel.classList.remove('active-panel');
+          dashboardPanel.classList.add('active-panel');
+        }
+        
+        // Store preference
+        localStorage.setItem('activeMobileTab', tabName);
+      }
+      
+      // Restore last active tab on page load (mobile only)
+      document.addEventListener('DOMContentLoaded', function() {
+        if (window.innerWidth <= 1024) {
+          const lastTab = localStorage.getItem('activeMobileTab') || 'chat';
+          switchMobileTab(lastTab);
+        }
+      });
+      
+      // Handle window resize
+      window.addEventListener('resize', function() {
+        if (window.innerWidth > 1024) {
+          // Desktop: show both panels
+          document.querySelector('.chat-panel').classList.add('active-panel');
+          document.querySelector('.dashboard-panel').classList.add('active-panel');
+        } else {
+          // Mobile: restore saved tab
+          const lastTab = localStorage.getItem('activeMobileTab') || 'chat';
+          switchMobileTab(lastTab);
+        }
+      });
+      
+      // Export for global use
+      window.switchMobileTab = switchMobileTab;
+    </script>
+    <script src="/public/js/dashboard.js?v=9"></script>
   `, userType);
 }
 
