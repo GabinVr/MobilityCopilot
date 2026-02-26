@@ -38,7 +38,7 @@ def synthesis_node(state: CopilotState, config: RunnableConfig) -> CopilotState:
     https://www.donneesquebec.ca/recherche/dataset/vmtl-collisions-routieres
     https://www.stm.info/fr/a-propos/developpeurs/description-des-donneesdisponibles
     And for weather data: 
-    
+    https://api.weather.gc.ca/
 
     RAW DATA & RULES:
     1. BUSINESS RULES & DEFINITIONS: {business_rules}
