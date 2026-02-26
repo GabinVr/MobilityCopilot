@@ -5,10 +5,12 @@ import pandas as pd
 from datetime import datetime
 from langchain_core.tools import tool
 import os
+from pathlib import Path
 
 
 try:
-    predictive_model = joblib.load("data/model/model_total.joblib")
+    MODEL_PATH = Path(__file__).resolve().parents[2] / "model" / "model_total.joblib"
+    predictive_model = joblib.load(MODEL_PATH)
 
 except Exception as e:
     predictive_model = None
