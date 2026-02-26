@@ -37,6 +37,7 @@ def contradictor_node(state: CopilotState) -> CopilotState:
     2. Speak in a clear manner for a general audience. Avoid technical jargon like 'SQL' or 'database'.
     3. Always reply in the user's language ({language}).
     4. You can add sources if it's relevant.
+    5. If a prediction about number of accident is made using the predictive model, always add a note about the limitations of the model.
     """
 
     prompt_context = f"""
