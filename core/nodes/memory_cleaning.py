@@ -37,9 +37,8 @@ def memory_cleaning_node(state: CopilotState) -> CopilotState:
     MAX_MESSAGES = 10
 
     if len(messages_to_keep) > MAX_MESSAGES:
-        excess_count = len(messages_to_keep) - MAX_MESSAGES
 
-        for msg in messages_to_keep[:excess_count]:
+        for msg in messages_to_keep[:-MAX_MESSAGES]:
             if msg.id:
                 messages_to_remove.append(RemoveMessage(id=msg.id))
     
