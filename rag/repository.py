@@ -1,13 +1,9 @@
-from typing import List
-from utils.llm_provider import get_llm_provider_name
+from typing import List, Any
+from utils.llm_provider import get_llm_provider_name, get_embedding_model
 from rag.corpus_builder import ChromaVectorRepository, CorpusManager, VectorRepository
 from utils.chroma_client import ChromaClient
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
-from abc import ABC, abstractmethod
-from typing import Any
 import os
 import logging
 
@@ -37,18 +33,10 @@ def get_repository() -> VectorRepository:
     COLLECTION_NAME = os.getenv("COLLECTION_NAME", "glossary_corpus")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
+    embeddings = get_embedding_model()
     if get_llm_provider_name() == "openai":
-        embeddings = OpenAIEmbeddings(
-                model="text-embedding-3-large",
-                # With the `text-embedding-3` class
-                # of models, you can specify the size
-                # of the embeddings you want returned.
-                # dimensions=1024
-            )
         COLLECTION_NAME = COLLECTION_NAME + "_openai"
-        EMBEDDING_MODEL = "text-embedding-3-large"
     else:
-        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
         COLLECTION_NAME = COLLECTION_NAME + "_hf"
     logger.info(f"Chroma repository configured with host={CHROMA_HOST}, port={CHROMA_PORT}, collection_name={COLLECTION_NAME}, embedding_model={EMBEDDING_MODEL}")
     return RepositoryFactory.create_chroma_repository(

@@ -164,13 +164,14 @@ class CorpusManager:
 
 if __name__ == "__main__":
     load_dotenv()
-    
+
     CHROMA_HOST = os.getenv("CHROMA_HOST", "localhost")
     CHROMA_PORT = int(os.getenv("CHROMA_PORT", 8000))
     COLLECTION_NAME = "glossary_corpus"
-    
+
+    from utils.llm_provider import get_embedding_model
     doc_provider = JsonDirectoryDocumentProvider(directory_path="data/glossaries/")
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    embeddings = get_embedding_model()
     repository = ChromaVectorRepository(
         host=CHROMA_HOST,
         port=CHROMA_PORT,
