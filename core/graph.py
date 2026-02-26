@@ -111,5 +111,3 @@ def build_workflow():
     workflow.add_edge("user_interaction", END)
 
     return workflow
-
-app = get_langgraph_app()
