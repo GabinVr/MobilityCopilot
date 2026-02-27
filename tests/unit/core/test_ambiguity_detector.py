@@ -88,4 +88,4 @@ def test_ambiguity_node_handles_empty_messages(
     result = ambiguity_module.ambiguity_node(state)
 
     assert result["is_ambiguous"] is False
-    assert "USER QUESTION:" in invoker.last_prompt
+    assert "USER LAST QUESTION:" in invoker.last_prompt

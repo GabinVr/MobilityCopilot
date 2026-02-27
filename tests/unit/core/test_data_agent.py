@@ -75,7 +75,7 @@ def test_data_agent_node_binds_tools_and_returns_message(
 
     assert "messages" in result
     assert result["messages"][0].content == "DATA GATHERING COMPLETE: []"
-    assert len(captured["tools"]) == 3
+    assert len(captured["tools"]) == 4
     assert len(captured["payload"]) == 2
 
 

@@ -3,7 +3,6 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from main import api
 from routes.chat import chat_router
-from routes.hotspot import hotspot_router
 from services.weekly_report import get_last_hotspot_report, hebdo_hotspots_briefing_generator
 
 from models import (    
@@ -403,65 +402,68 @@ class TestWeatherCorrelationEndpoint:
 class TestTrendsEndpoint:
     """Tests pour l'endpoint /dashboard/trends."""
 
+    _RAW_STATS = {
+        "generated_at": "2026-02-23T17:45:00Z",
+        "as_of_date": "2024-04-28",
+        "monthly_collisions": {"current_period": "2024-04", "current_count": 120,
+                               "previous_period": "2024-03", "previous_count": 110,
+                               "diff": 10, "pct_change": 9.1, "direction": "up", "series": []},
+        "pedestrian_3m_vs_last_year": {"direction": "up", "pct_change": 18.0},
+        "hourly_peak_shift": {"shift_hours": -2, "direction": "down"},
+        "weekly_311_changes": {"changes": []},
+        "weak_signals_311": {"signals": []},
+    }
+
+    def _fake_llm(self):
+        from types import SimpleNamespace
+
+        class _FakeStructuredLLM:
+            def invoke(self, _messages):
+                return SimpleNamespace(trends=[
+                    SimpleNamespace(
+                        metric="monthly_collisions",
+                        period="Avril 2024",
+                        comparison="vs Mars 2024",
+                        interpretation="Les collisions mensuelles augmentent de 9.1%.",
+                        direction="up",
+                        pct_change=9.1,
+                    )
+                ])
+
+        class _FakeLLM:
+            def with_structured_output(self, _schema):
+                return _FakeStructuredLLM()
+
+        return _FakeLLM()
+
     def test_trends_endpoint_success(self, client):
-        payload = {
-            "as_of_date": "2024-04-28"
-        }
+        payload = {"as_of_date": "2024-04-28"}
 
-        mock_result = {
-            "generated_at": "2026-02-23T17:45:00Z",
-            "as_of_date": "2024-04-28",
-            "monthly_collisions": {
-                "current_period": "2024-04",
-                "previous_period": "2024-03",
-                "current_count": 120,
-                "previous_count": 110,
-                "diff": 10,
-                "pct_change": 9.1,
-                "direction": "up",
-                "series": []
-            },
-            "pedestrian_3m_vs_last_year": {
-                "direction": "up",
-                "pct_change": 18.0
-            },
-            "hourly_peak_shift": {
-                "shift_hours": -2,
-                "direction": "down"
-            },
-            "weekly_311_changes": {
-                "changes": []
-            },
-            "weak_signals_311": {
-                "signals": []
-            },
-            "insights": [
-                "Collisions en hausse sur le dernier mois."
-            ]
-        }
-
-        with patch('routes.trends.TrendQuery') as mock_query_class:
+        with patch('routes.trends.TrendQuery') as mock_query_class, \
+             patch('routes.trends.get_llm', return_value=self._fake_llm()), \
+             patch('cache.redis_client_async', None):
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
-            mock_query.execute.return_value = mock_result
+            mock_query.build_raw_stats.return_value = self._RAW_STATS
 
             response = client.post("/dashboard/trends", json=payload)
 
             assert response.status_code == 200
             data = response.json()
             assert data["as_of_date"] == "2024-04-28"
-            assert data["monthly_collisions"]["direction"] == "up"
-            mock_query.execute.assert_called_once_with(as_of_date="2024-04-28")
+            assert isinstance(data["trends"], list)
+            assert len(data["trends"]) == 1
+            assert data["trends"][0]["metric"] == "monthly_collisions"
+            mock_query.build_raw_stats.assert_called_once_with(as_of_date="2024-04-28")
 
     def test_trends_endpoint_value_error(self, client):
-        payload = {
-            "as_of_date": "2024-99-99"
-        }
+        payload = {"as_of_date": "2024-99-99"}
 
-        with patch('routes.trends.TrendQuery') as mock_query_class:
+        with patch('routes.trends.TrendQuery') as mock_query_class, \
+             patch('cache.redis_client_async', None):
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
-            mock_query.execute.side_effect = ValueError("Invalid as_of_date format")
+            mock_query.build_raw_stats.side_effect = ValueError("Invalid as_of_date format")
 
             response = client.post("/dashboard/trends", json=payload)
 
@@ -472,10 +474,11 @@ class TestTrendsEndpoint:
     def test_trends_endpoint_exception(self, client):
         payload = {}
 
-        with patch('routes.trends.TrendQuery') as mock_query_class:
+        with patch('routes.trends.TrendQuery') as mock_query_class, \
+             patch('cache.redis_client_async', None):
             mock_query = MagicMock()
             mock_query_class.return_value = mock_query
-            mock_query.execute.side_effect = Exception("Unexpected DB issue")
+            mock_query.build_raw_stats.side_effect = Exception("Unexpected DB issue")
 
             response = client.post("/dashboard/trends", json=payload)
 
