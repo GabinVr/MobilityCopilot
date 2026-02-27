@@ -132,7 +132,6 @@ class ChromaVectorRepository(VectorRepository):
         return docs
 
     def get_all_documents(self) -> List[Document]:
-        vectorstore = self._get_vectorstore()
         # Get all documents from the collection
         collection = self.client.get_or_create_collection(self.collection_name)
         results = collection.get(include=["documents", "metadatas"])
