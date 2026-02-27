@@ -92,7 +92,7 @@ async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
         if hasattr(graph, "aget_state_history"):
             try:
                 history = [item async for item in graph.aget_state_history(config)]
-                logger.info(f"Thread: {thread_id}, Full history: {history}")
+                logger.debug(f"Thread: {thread_id}, Full history: {history}")
             except Exception as history_error:
                 logger.debug(f"State history unavailable: {history_error}")
         # Check if the response is ambiguous
