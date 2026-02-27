@@ -27,6 +27,28 @@ def _parse_optional_float(value: Optional[str]) -> Optional[float]:
     except ValueError as exc:
         raise ValueError(f"Expected float value, got: {value!r}") from exc
 
+def get_llm_name() -> str:
+    """Get the name of the active LLM from environment variable."""
+    provider = os.getenv("LLM_PROVIDER", "unknown").lower()
+    if provider == "ollama":
+        model = os.getenv("OLLAMA_MODEL", "unknown_model")
+        return model 
+    if provider == "openai":
+        model = os.getenv("OPENAI_MODEL", "unknown_model")
+        return model
+    if provider == "mistral":
+        model = os.getenv("MISTRAL_MODEL", "unknown_model")
+        return model
+    if provider in ("gemini", "google"):
+        model = os.getenv("GEMINI_MODEL", "unknown_model")
+        return model
+    else:
+        return provider
+
+def get_llm_provider_name() -> str:
+    """Get the name of the active LLM provider from environment variable."""
+    provider = os.getenv("LLM_PROVIDER", "unknown").lower()
+    return provider
 
 def get_llm() -> Any:
     """Return an initialized LangChain chat model from the selected provider."""
@@ -442,6 +464,27 @@ class LLMManager:
     def list_providers() -> List[str]:
         """List available providers."""
         return LLMFactory.get_available_providers()
+
+
+def get_embedding_model():
+    """Return the appropriate embeddings model based on LLM_PROVIDER.
+
+    - openai  → OpenAIEmbeddings (text-embedding-3-large, overridable via OPENAI_EMBEDDING_MODEL)
+    - others  → HuggingFaceEmbeddings (overridable via EMBEDDING_MODEL)
+    """
+    provider = os.getenv("LLM_PROVIDER", "").lower()
+    if provider == "openai":
+        from langchain_openai import OpenAIEmbeddings
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required for OpenAI embeddings")
+        model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
+        logger.info("Using OpenAI embeddings: %s", model)
+        return OpenAIEmbeddings(api_key=api_key, model=model)
+    from langchain_huggingface import HuggingFaceEmbeddings
+    model = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    logger.info("Using HuggingFace embeddings: %s", model)
+    return HuggingFaceEmbeddings(model_name=model)
 
 
 def get_llm_manager(provider: Optional[str] = None, **kwargs) -> LLMManager:

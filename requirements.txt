@@ -29,6 +29,7 @@ redis==7.1.1
 msgpack>=1.1.2
 aioredis>=2.0
 apscheduler
+reportlab>=4.0.0
 datetime
 pathlib 
 typing 

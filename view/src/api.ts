@@ -243,6 +243,26 @@ export class DashboardApi {
   }
 
   /**
+   * Get trends data
+   */
+  async getTrendsData(userType: string, filters = {}) {
+    const query = new URLSearchParams(filters).toString();
+    return this.client.get(
+      `/trends/${userType}${query ? "?" + query : ""}`
+    );
+  }
+
+  /**
+   * Get weekly reports
+   */
+  async getWeeklyReports(userType: string, filters = {}) {
+    const query = new URLSearchParams(filters).toString();
+    return this.client.get(
+      `/weekly-reports/${userType}${query ? "?" + query : ""}`
+    );
+  }
+
+  /**
    * Get word cloud data
    */
   async getWordCloudData(filters = {}) {
@@ -333,7 +353,7 @@ export function getApiClient(): ApiClient {
     const baseUrl =
       typeof window !== "undefined"
         ? "/api"
-        : process.env.BACKEND_API_URL || "http://localhost:8000/";
+        : process.env.BACKEND_API_URL || "http://localhost:1337/";
     apiClient = new ApiClient(baseUrl);
   }
   return apiClient;

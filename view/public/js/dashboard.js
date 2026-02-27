@@ -6,6 +6,9 @@ let heatmapLayer = null;
 
 // Initialize on page load
 document.addEventListener("DOMContentLoaded", function () {
+  // Clear chat thread cookie on page load to start a fresh conversation
+  document.cookie = "chat_thread_id=; Path=/; Max-Age=0";
+
   const bodyUserType = document.body?.dataset?.userType;
   if (bodyUserType === "municipality") {
     currentUserType = "municipality";
@@ -28,30 +31,48 @@ function initializeDashboard() {
   // Initialize charts and maps
   initializeHeatmap();
   initializeWordCloud();
-  initializeWeatherChart();
+  // initializeWeatherChart(); // Commented out - weather chart removed
+  initializeTrends();
+  initializeWeeklyReports();
 }
 
 // ============ MODE DISPLAY ============
 
 // ============ LOAD DASHBOARD DATA ============
 
-async function loadDashboardData() {
-  try {
-    const heatmapWeatherData = await loadHeatmapWeatherData();
-    const wordcloudData = await loadWordcloudData();
+function loadDashboardData() {
+  loadHeatmapWeatherData()
+    .then((data) => {
+      updateHeatmapData(data ? data.heatmapData : null);
+    })
+    .catch((error) => {
+      console.error("Error loading heatmap/weather data:", error);
+      const container = document.getElementById("heatmap-container");
+      if (container) container.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+    });
 
-    if (heatmapWeatherData) {
-      updateHeatmapData(heatmapWeatherData.heatmapData);
-      updateWeatherChart(heatmapWeatherData.weatherCorrelation);
-    }
+  loadWordcloudData()
+    .then((data) => {
+      updateWordCloudData(data ? data.wordCloudData : null);
+    })
+    .catch((error) => {
+      console.error("Error loading wordcloud data:", error);
+      const container = document.getElementById("wordcloud-container");
+      if (container) container.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+    });
 
-    if (wordcloudData) {
-      updateWordCloudData(wordcloudData.wordCloudData);
-    }
-  } catch (error) {
-    console.error("Error loading dashboard data:", error);
-    showDashboardError();
-  }
+  loadTrendsData()
+    .then((data) => {
+      if (data) updateTrendsData(data);
+    })
+    .catch((error) => {
+      console.error("Error loading trends data:", error);
+      const container = document.getElementById("trends-container");
+      if (container) container.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+    });
+
+  // Weekly reports widget is instant (no real API call)
+  updateWeeklyReportsData(true);
 }
 
 async function loadHeatmapWeatherData() {
@@ -112,24 +133,165 @@ function getFilterValues() {
 function showDashboardError() {
   const heatmap = document.getElementById("heatmap-container");
   const wordcloud = document.getElementById("wordcloud-container");
-  const weather = document.getElementById("weather-chart-container");
+  // const weather = document.getElementById("weather-chart-container");
+  const trends = document.getElementById("trends-container");
+  const weeklyReports = document.getElementById("weekly-reports-container");
 
-  if (heatmap) {
-    heatmap.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+  const errorHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+
+  if (heatmap) heatmap.innerHTML = errorHTML;
+  if (wordcloud) wordcloud.innerHTML = errorHTML;
+  // if (weather) weather.innerHTML = errorHTML;
+  if (trends) trends.innerHTML = errorHTML;
+  if (weeklyReports) weeklyReports.innerHTML = errorHTML;
+}
+
+// ============ TRENDS DATA ============
+
+async function loadTrendsData() {
+  try {
+    const trendsDateInput = document.getElementById("trends-date");
+    const asOfDate = trendsDateInput?.value || new Date().toISOString().split("T")[0];
+
+    const response = await fetch(
+      `/api/trends/${currentUserType}?as_of_date=${encodeURIComponent(asOfDate)}`
+    );
+
+    if (!response.ok) {
+      throw new Error("Trends data request failed");
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error loading trends data:", error);
+    return null;
   }
-  if (wordcloud) {
-    wordcloud.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+}
+
+function updateTrendsData(data) {
+  const container = document.getElementById("trends-container");
+  if (!container) return;
+
+  const trends = data.trends || [];
+
+  if (!trends.length) {
+    container.innerHTML = `<div class="viz-placeholder">Aucune tendance disponible</div>`;
+    return;
   }
-  if (weather) {
-    weather.innerHTML = `<div class="viz-placeholder">Erreur de chargement</div>`;
+
+  const metricLabels = {
+    "pedestrian_collisions": "Collisions piétons",
+    "monthly_collisions": "Collisions mensuelles",
+    "hourly_peak": "Pic horaire",
+    "311_top_change": "Requêtes 311",
+    "weak_signal_311": "Signal faible 311",
+  };
+
+  const directionIcon = { up: "↑", down: "↓", stable: "→" };
+  const directionClass = { up: "trend-up", down: "trend-down", stable: "trend-stable" };
+
+  const cards = trends.map((trend) => {
+    const icon = directionIcon[trend.direction] || "→";
+    const cls = directionClass[trend.direction] || "trend-stable";
+    const label = metricLabels[trend.metric] || trend.metric;
+    const pctStr =
+      trend.pct_change != null
+        ? `<span class="trend-pct ${cls}">${trend.pct_change > 0 ? "+" : ""}${trend.pct_change.toFixed(1)}%</span>`
+        : "";
+
+    return `
+      <div class="trend-card">
+        <div class="trend-card-header">
+          <span class="trend-icon ${cls}">${icon}</span>
+          <span>${label}</span>
+          ${pctStr}
+        </div>
+        <div class="trend-meta">
+          <span class="trend-period">${trend.period}</span>
+          <span class="trend-comparison">${trend.comparison}</span>
+        </div>
+        <p class="trend-interpretation">${trend.interpretation}</p>
+      </div>
+    `;
+  }).join("");
+
+  container.innerHTML = `<div class="trends-list">${cards}</div>`;
+}
+
+// ============ WEEKLY REPORTS DATA ============
+
+async function loadWeeklyReportsData() {
+  // Always report available - validation happens on click
+  return true;
+}
+
+function updateWeeklyReportsData(available) {
+  const container = document.getElementById("weekly-reports-container");
+  if (!container) return;
+
+  try {
+    const currentLang = window.currentLanguage || "fr";
+    const reportTitle = window.t ? window.t("hotspotsAndWeakSignals") : "Rapport Points Chauds & Signaux Faibles";
+    const downloadLabel = window.t ? window.t("downloadReport") : "Télécharger le Rapport PDF";
+    const sectionsLabel = window.t ? window.t("sections") : "Sections: Points Chauds et Signaux Faibles";
+    
+    if (!available) {
+      // Display disabled button when API fails or report unavailable
+      const unavailableMsg = window.t ? window.t("noReportAvailable") : "Rapport en cours de génération...";
+      const html = `
+        <div class="weekly-reports-content">
+          <div class="report-section">
+            <h4>${reportTitle}</h4>
+            <div class="report-body">
+              <p>${sectionsLabel}</p>
+              <div class="report-metadata">
+                <small>${unavailableMsg}</small>
+              </div>
+              <div class="report-actions">
+                <button class="btn-download" disabled title="${unavailableMsg}">
+                  📄 ${downloadLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      container.innerHTML = html;
+      return;
+    }
+    
+    // PDF endpoint serves file directly for download
+    const downloadUrl = `/api/weekly-reports/${currentUserType}?language=${encodeURIComponent(currentLang)}`;
+    const html = `
+      <div class="weekly-reports-content">
+        <div class="report-section">
+          <h4>${reportTitle}</h4>
+          <div class="report-body">
+            <p>${sectionsLabel}</p>
+            <div class="report-actions">
+              <a href="${downloadUrl}" download class="btn-download">
+                📄 ${downloadLabel}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = html;
+  } catch (error) {
+    console.error("Error updating weekly reports data:", error);
+    container.innerHTML = `<div class="viz-placeholder">${window.t ? window.t("reportError") : "Erreur lors du chargement du rapport."}</div>`;
   }
 }
 
 function setupFilters() {
   const applyFiltersBtn = document.getElementById("apply-filters");
   const applyWordcloudBtn = document.getElementById("apply-wordcloud");
+  const applyTrendsBtn = document.getElementById("apply-trends");
   const startDateInput = document.getElementById("start-date");
   const endDateInput = document.getElementById("end-date");
+  const trendsDateInput = document.getElementById("trends-date");
 
   if (startDateInput && endDateInput) {
     const startDate = new Date(2015, 0, 1);
@@ -143,12 +305,19 @@ function setupFilters() {
     }
   }
 
+  if (trendsDateInput) {
+    if (!trendsDateInput.value) {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      trendsDateInput.value = formatDateInput(oneWeekAgo);
+    }
+  }
+
   if (applyFiltersBtn) {
     applyFiltersBtn.addEventListener("click", async () => {
       const heatmapWeatherData = await loadHeatmapWeatherData();
       if (heatmapWeatherData) {
         updateHeatmapData(heatmapWeatherData.heatmapData);
-        updateWeatherChart(heatmapWeatherData.weatherCorrelation);
       }
     });
   }
@@ -158,6 +327,15 @@ function setupFilters() {
       const wordcloudData = await loadWordcloudData();
       if (wordcloudData) {
         updateWordCloudData(wordcloudData.wordCloudData);
+      }
+    });
+  }
+
+  if (applyTrendsBtn) {
+    applyTrendsBtn.addEventListener("click", async () => {
+      const trendsData = await loadTrendsData();
+      if (trendsData) {
+        updateTrendsData(trendsData);
       }
     });
   }
@@ -325,97 +503,115 @@ function updateWordCloudData(data) {
 
 // ============ WEATHER CHART INITIALIZATION ============
 
-function initializeWeatherChart() {
-  const container = document.getElementById("weather-chart-container");
+// function initializeWeatherChart() {
+//   const container = document.getElementById("weather-chart-container");
+//   if (!container) return;
+//   container.innerHTML = `
+//     <div class="viz-placeholder">Chargement de la meteo...</div>
+//   `;
+// }
+
+// function updateWeatherChart(data) {
+//   const container = document.getElementById("weather-chart-container");
+//   if (!container) return;
+
+//   if (!data || !Array.isArray(data.correlations) || data.correlations.length === 0) {
+//     container.innerHTML = `
+//       <div class="viz-placeholder">Aucune correlation disponible</div>
+//     `;
+//     return;
+//   }
+
+//   const series = data.correlations.filter((p) => p.weather && p.collisions).slice(0, 16);
+//   const temps = series.map((p) => p.weather.mean_temp_c ?? 0);
+//   const collisions = series.map((p) => p.collisions.total || 0);
+//   const minTemp = Math.min(...temps);
+//   const maxTemp = Math.max(...temps);
+//   const minColl = Math.min(...collisions);
+//   const maxColl = Math.max(...collisions);
+
+//   if (!series.length || maxColl === 0) {
+//     container.innerHTML = `
+//       <div class="viz-placeholder">Aucune collision pour la periode</div>
+//     `;
+//     return;
+//   }
+
+//   const width = 420;
+//   const height = 260;
+//   const padding = 36;
+//   const innerW = width - padding * 2;
+//   const innerH = height - padding * 2;
+
+//   const points = series.map((p, index) => {
+//     const temp = p.weather.mean_temp_c ?? 0;
+//     const total = p.collisions.total || 0;
+//     const x = padding + ((temp - minTemp) / (maxTemp - minTemp || 1)) * innerW;
+//     const y = padding + (1 - (total - minColl) / (maxColl - minColl || 1)) * innerH;
+//     const delay = Math.min(1, index * 0.05);
+//     return { x, y, temp, total, delay };
+//   });
+
+//   const { slope, intercept } = linearRegression(points);
+//   const lineX1 = padding;
+//   const lineX2 = padding + innerW;
+//   const lineY1 = padding + (1 - (slope * minTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
+//   const lineY2 = padding + (1 - (slope * maxTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
+
+//   const dots = points
+//     .map(
+//       (p) => `
+//         <circle class="weather-dot" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="5" style="animation-delay:${p.delay}s"></circle>
+//       `
+//     )
+//     .join("");
+
+//   container.innerHTML = `
+//     <div class="weather-chart fade-in">
+//       <svg class="weather-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+//         <line class="weather-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${padding + innerH}"></line>
+//         <line class="weather-axis" x1="${padding}" y1="${padding + innerH}" x2="${padding + innerW}" y2="${padding + innerH}"></line>
+//         <line class="weather-trend" x1="${lineX1.toFixed(2)}" y1="${lineY1.toFixed(2)}" x2="${lineX2.toFixed(2)}" y2="${lineY2.toFixed(2)}"></line>
+//         ${dots}
+//         <text class="weather-axis-label" x="${padding}" y="${padding - 10}">Collisions</text>
+//         <text class="weather-axis-label" x="${padding + innerW}" y="${padding + innerH + 26}" text-anchor="end">Temperature moyenne (°C)</text>
+//       </svg>
+//     </div>
+//   `;
+// }
+
+// function linearRegression(points) {
+//   const n = points.length;
+//   const xs = points.map((p) => p.temp);
+//   const ys = points.map((p) => p.total);
+//   const sumX = xs.reduce((a, b) => a + b, 0);
+//   const sumY = ys.reduce((a, b) => a + b, 0);
+//   const sumXY = xs.reduce((a, b, i) => a + b * ys[i], 0);
+//   const sumX2 = xs.reduce((a, b) => a + b * b, 0);
+
+//   const denom = n * sumX2 - sumX * sumX || 1;
+//   const slope = (n * sumXY - sumX * sumY) / denom;
+//   const intercept = (sumY - slope * sumX) / n;
+
+//   return { slope, intercept };
+// }
+
+// ============ TRENDS INITIALIZATION ============
+
+function initializeTrends() {
+  const container = document.getElementById("trends-container");
   if (!container) return;
-  container.innerHTML = `
-    <div class="viz-placeholder">Chargement de la meteo...</div>
-  `;
+  container.innerHTML = `<div class="viz-placeholder">Chargement des tendances...</div>`;
 }
 
-function updateWeatherChart(data) {
-  const container = document.getElementById("weather-chart-container");
+// ============ WEEKLY REPORTS INITIALIZATION ============
+
+function initializeWeeklyReports() {
+  const container = document.getElementById("weekly-reports-container");
   if (!container) return;
-
-  if (!data || !Array.isArray(data.correlations) || data.correlations.length === 0) {
-    container.innerHTML = `
-      <div class="viz-placeholder">Aucune correlation disponible</div>
-    `;
-    return;
-  }
-
-  const series = data.correlations.filter((p) => p.weather && p.collisions).slice(0, 16);
-  const temps = series.map((p) => p.weather.mean_temp_c ?? 0);
-  const collisions = series.map((p) => p.collisions.total || 0);
-  const minTemp = Math.min(...temps);
-  const maxTemp = Math.max(...temps);
-  const minColl = Math.min(...collisions);
-  const maxColl = Math.max(...collisions);
-
-  if (!series.length || maxColl === 0) {
-    container.innerHTML = `
-      <div class="viz-placeholder">Aucune collision pour la periode</div>
-    `;
-    return;
-  }
-
-  const width = 420;
-  const height = 260;
-  const padding = 36;
-  const innerW = width - padding * 2;
-  const innerH = height - padding * 2;
-
-  const points = series.map((p, index) => {
-    const temp = p.weather.mean_temp_c ?? 0;
-    const total = p.collisions.total || 0;
-    const x = padding + ((temp - minTemp) / (maxTemp - minTemp || 1)) * innerW;
-    const y = padding + (1 - (total - minColl) / (maxColl - minColl || 1)) * innerH;
-    const delay = Math.min(1, index * 0.05);
-    return { x, y, temp, total, delay };
-  });
-
-  const { slope, intercept } = linearRegression(points);
-  const lineX1 = padding;
-  const lineX2 = padding + innerW;
-  const lineY1 = padding + (1 - (slope * minTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
-  const lineY2 = padding + (1 - (slope * maxTemp + intercept - minColl) / (maxColl - minColl || 1)) * innerH;
-
-  const dots = points
-    .map(
-      (p) => `
-        <circle class="weather-dot" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="5" style="animation-delay:${p.delay}s"></circle>
-      `
-    )
-    .join("");
-
   container.innerHTML = `
-    <div class="weather-chart fade-in">
-      <svg class="weather-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
-        <line class="weather-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${padding + innerH}"></line>
-        <line class="weather-axis" x1="${padding}" y1="${padding + innerH}" x2="${padding + innerW}" y2="${padding + innerH}"></line>
-        <line class="weather-trend" x1="${lineX1.toFixed(2)}" y1="${lineY1.toFixed(2)}" x2="${lineX2.toFixed(2)}" y2="${lineY2.toFixed(2)}"></line>
-        ${dots}
-        <text class="weather-axis-label" x="${padding}" y="${padding - 10}">Collisions</text>
-        <text class="weather-axis-label" x="${padding + innerW}" y="${padding + innerH + 26}" text-anchor="end">Temperature moyenne (°C)</text>
-      </svg>
-    </div>
+    <div class="viz-placeholder">Chargement des rapports...</div>
   `;
-}
-
-function linearRegression(points) {
-  const n = points.length;
-  const xs = points.map((p) => p.temp);
-  const ys = points.map((p) => p.total);
-  const sumX = xs.reduce((a, b) => a + b, 0);
-  const sumY = ys.reduce((a, b) => a + b, 0);
-  const sumXY = xs.reduce((a, b, i) => a + b * ys[i], 0);
-  const sumX2 = xs.reduce((a, b) => a + b * b, 0);
-
-  const denom = n * sumX2 - sumX * sumX || 1;
-  const slope = (n * sumXY - sumX * sumY) / denom;
-  const intercept = (sumY - slope * sumX) / n;
-
-  return { slope, intercept };
 }
 
 // ============ HTMX INTERCEPTORS ============
@@ -452,6 +648,8 @@ function setupChatMessageHandling() {
   chatForm.addEventListener("htmx:beforeSend", function (e) {
     const input = this.querySelector(".chat-input");
     const message = input.value.trim();
+    console.log(`[BROWSER DEBUG] 🟢 Envoi message: "${message.substring(0, 50)}"`);
+    console.log(`[BROWSER DEBUG] 🟢 Cookies visibles par JS: ${document.cookie || "AUCUN"}`);
 
     if (message) {
       // Affiche le message utilisateur immédiatement
@@ -470,10 +668,32 @@ function setupChatMessageHandling() {
     removeLoadingAnimation();
   });
 
-  // Nettoie après la réponse
+  // Intercepte la réponse HTMX pour lire les headers
+  chatForm.addEventListener("htmx:afterRequest", function (e) {
+    const xhr = e.detail.xhr;
+    if (xhr) {
+      const threadHeader = xhr.getResponseHeader("X-Chat-Thread-Id");
+      console.log(`[BROWSER DEBUG] 🟢 Header X-Chat-Thread-Id reçu: ${threadHeader || "ABSENT"}`);
+      console.log(`[BROWSER DEBUG] 🟢 Tous les headers de réponse:\n${xhr.getAllResponseHeaders()}`);
+      console.log(`[BROWSER DEBUG] 🟢 Cookies après réponse: ${document.cookie || "AUCUN"}`);
+    } else {
+      console.log(`[BROWSER DEBUG] ⚠️ Pas d'objet XHR disponible dans htmx:afterRequest`);
+    }
+  });
+
+  // Nettoie après la réponse et traite les nouvelles réponses
   chatForm.addEventListener("htmx:afterSwap", function (e) {
+    // Debug: vérifie le data-thread-id dans la réponse HTML
+    const aiMessages = document.querySelectorAll(".chat-message.ai[data-thread-id]");
+    const lastAiMsg = aiMessages.length > 0 ? aiMessages[aiMessages.length - 1] : null;
+    const threadIdFromHtml = lastAiMsg?.getAttribute("data-thread-id");
+    console.log(`[BROWSER DEBUG] 🟢 thread_id dans data-attr HTML: ${threadIdFromHtml || "AUCUN"}`);
+    
     // Réinitialise le formulaire
     this.reset();
+    
+    // Traite les nouvelles réponses (contradictor notes, markdown, etc.)
+    processNewChatMessages();
     
     // Scroll vers le bas
     scrollChatToBottom();
@@ -498,6 +718,8 @@ function setupChatMessageHandling() {
   });
 
   document.addEventListener("htmx:afterSwap", function (e) {
+    // Traite les nouvelles réponses
+    processNewChatMessages();
     // Scroll vers le bas après la réponse
     scrollChatToBottom();
   });
@@ -553,7 +775,104 @@ function scrollChatToBottom() {
   }
 }
 
-// ============ BRIEFING MODAL ============
+/**
+ * Post-process new chat messages to:
+ * - Convert .warning-note elements to <details> dropdowns
+ * - Handle markdown formatting
+ */
+function processNewChatMessages() {
+  const chatHistory = document.getElementById("chat-history");
+  if (!chatHistory) return;
+
+  // Get all AI messages (most recent ones that were just added)
+  const aiMessages = chatHistory.querySelectorAll(".chat-message.ai:not([data-processed])");
+  
+  aiMessages.forEach((messageDiv) => {
+    messageDiv.dataset.processed = "true";
+    
+    // Process markdown in message content
+    const markdownSource = messageDiv.querySelector(".markdown-source");
+    const markdownRendered = messageDiv.querySelector(".markdown-rendered");
+    
+    if (markdownSource && markdownRendered && markdownSource.textContent) {
+      try {
+        // Resolve the correct marked.parse function (handles different UMD export shapes)
+        const markedLib = window.marked;
+        const DOMPurify = window.DOMPurify;
+        const parseFn = markedLib
+          ? (markedLib.parse ? markedLib.parse.bind(markedLib) : (markedLib.marked ? markedLib.marked.parse.bind(markedLib.marked) : null))
+          : null;
+        
+        if (parseFn && DOMPurify) {
+          // .textContent already decodes HTML entities, no need to unescape manually
+          const rawMarkdown = markdownSource.textContent;
+          const htmlContent = parseFn(rawMarkdown);
+          const cleanHtml = DOMPurify.sanitize(htmlContent);
+          markdownRendered.innerHTML = cleanHtml;
+        } else {
+          // Fallback: show raw text with line breaks
+          markdownRendered.innerHTML = markdownSource.textContent.replace(/\n/g, '<br>');
+        }
+      } catch (error) {
+        console.error("Error processing markdown:", error);
+        // Keep original text on error, with line breaks
+        markdownRendered.innerHTML = markdownSource.textContent.replace(/\n/g, '<br>');
+      }
+    }
+    
+    // Find and convert .warning-note to <details> with markdown rendering
+    const warningNotes = messageDiv.querySelectorAll(".warning-note");
+    warningNotes.forEach((warningNote) => {
+      // Process markdown inside warning-note if it has markdown-source
+      const noteMarkdownSource = warningNote.querySelector(".markdown-source");
+      const noteMarkdownRendered = warningNote.querySelector(".markdown-rendered");
+      
+      if (noteMarkdownSource && noteMarkdownRendered && noteMarkdownSource.textContent) {
+        try {
+          const markedLib2 = window.marked;
+          const DOMPurify2 = window.DOMPurify;
+          const parseFn2 = markedLib2
+            ? (markedLib2.parse ? markedLib2.parse.bind(markedLib2) : (markedLib2.marked ? markedLib2.marked.parse.bind(markedLib2.marked) : null))
+            : null;
+          
+          if (parseFn2 && DOMPurify2) {
+            const noteHtml = parseFn2(noteMarkdownSource.textContent);
+            noteMarkdownRendered.innerHTML = DOMPurify2.sanitize(noteHtml);
+          } else {
+            noteMarkdownRendered.innerHTML = noteMarkdownSource.textContent.replace(/\n/g, '<br>');
+          }
+        } catch (err) {
+          console.error("Error processing contradictor note markdown:", err);
+          noteMarkdownRendered.innerHTML = noteMarkdownSource.textContent.replace(/\n/g, '<br>');
+        }
+      }
+
+      const details = document.createElement("details");
+      details.className = "contradictory-notes-dropdown";
+      
+      const summary = document.createElement("summary");
+      summary.className = "contradictory-notes-label";
+      // Use translated label
+      summary.textContent = window.t ? window.t("contradictorNotesLabel") : "L'assistant peut faire des erreurs, consultez les notes contradictoires";
+      
+      const content = document.createElement("div");
+      content.className = "contradictory-notes-content";
+      // Use rendered markdown content if available
+      if (noteMarkdownRendered && noteMarkdownRendered.innerHTML) {
+        content.innerHTML = noteMarkdownRendered.innerHTML;
+      } else {
+        content.innerHTML = warningNote.innerHTML;
+      }
+      
+      details.appendChild(summary);
+      details.appendChild(content);
+      
+      // Replace the warning-note with the details element
+      warningNote.replaceWith(details);
+    });
+  });
+}
+
 
 function openBriefingModal() {
   const modal = document.getElementById("briefing-modal");

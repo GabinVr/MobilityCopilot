@@ -1,13 +1,14 @@
-from typing import List
+from typing import List, Any
+from utils.llm_provider import get_llm_provider_name, get_embedding_model
 from rag.corpus_builder import ChromaVectorRepository, CorpusManager, VectorRepository
 from utils.chroma_client import ChromaClient
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
 from dotenv import load_dotenv
-from abc import ABC, abstractmethod
-from typing import Any
 import os
+import logging
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class RepositoryFactory():
     @staticmethod
@@ -32,10 +33,12 @@ def get_repository() -> VectorRepository:
     COLLECTION_NAME = os.getenv("COLLECTION_NAME", "glossary_corpus")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
-    # If embeddings are huggingface-based, we can directly instantiate them here
-    # for  google-based or other types of embeddings, this part would need to be adapted
-    # TODO: Add support for different types of embeddings based on environment variables
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    embeddings = get_embedding_model()
+    if get_llm_provider_name() == "openai":
+        COLLECTION_NAME = COLLECTION_NAME + "_openai"
+    else:
+        COLLECTION_NAME = COLLECTION_NAME + "_hf"
+    logger.info(f"Chroma repository configured with host={CHROMA_HOST}, port={CHROMA_PORT}, collection_name={COLLECTION_NAME}, embedding_model={EMBEDDING_MODEL}")
     return RepositoryFactory.create_chroma_repository(
         host=CHROMA_HOST,
         port=CHROMA_PORT,

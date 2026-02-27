@@ -367,7 +367,12 @@ const app = new Elysia()
         );
       }
 
-      const data = await response.json();
+      const data = await response.json() as {
+        answer?: string;
+        thread_id?: string;
+        is_ambiguous?: boolean;
+        contradictor_notes?: string;
+      };
       
       if (data.is_ambiguous) {
         // Parse options from answer (newline-separated string)
@@ -405,14 +410,20 @@ const app = new Elysia()
       } else {
         // Normal response
         const answer = data.answer || "Réponse vide";
-        const notes = data.contradictor_notes 
-          ? `<div class="warning-note">⚠️ ${data.contradictor_notes}</div>` 
+        const rawNotes = data.contradictor_notes || "";
+        const escapedNotes = rawNotes.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const notes = rawNotes
+          ? `<div class="warning-note"><div class="markdown-source" style="display:none;">⚠️ ${escapedNotes}</div><div class="markdown-rendered"></div></div>` 
           : "";
         
+        // Escape HTML entities to prevent XSS in raw markdown
+        const escapedAnswer = answer.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
         htmlResponse_str += `
-          <div class="chat-message ai">
+          <div class="chat-message ai" data-thread-id="${data.thread_id || ''}">
             <div class="message-content">
-              ${answer.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}
+              <div class="markdown-source" style="display:none;">${escapedAnswer}</div>
+              <div class="markdown-rendered"></div>
               ${notes}
             </div>
           </div>
@@ -472,42 +483,25 @@ const app = new Elysia()
       ? { startDate: startDateParam, endDate: endDateParam }
       : timeRangeToDates(timeRange);
 
-    const [heatmapRes, weatherRes] = await Promise.all([
-      fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          time_range: startDateParam && endDateParam
-            ? `${startDateParam} to ${endDateParam}`
-            : timeRange,
-          severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
-        }),
+    const heatmapRes = await fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        time_range: startDateParam && endDateParam
+          ? `${startDateParam} to ${endDateParam}`
+          : timeRange,
+        severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
       }),
-      fetch(`${BACKEND_API_URL}/dashboard/weather-correlation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          start_date: dateRange.startDate,
-          end_date: dateRange.endDate,
-          frequency: "week",
-        }),
-      }),
-    ]);
+    });
 
     let heatmapData = null;
-    let weatherCorrelation = null;
 
     if (heatmapRes.ok) {
       heatmapData = await heatmapRes.json();
     }
 
-    if (weatherRes.ok) {
-      weatherCorrelation = await weatherRes.json();
-    }
-
     return {
       heatmapData,
-      weatherCorrelation,
       userType: resolvedUserType,
     };
   })
@@ -560,6 +554,109 @@ const app = new Elysia()
     }
   })
 
+  // Endpoint for trends
+  .get("/api/trends/:userType", async ({ params, request }) => {
+    const resolvedUserType = await resolveUserType(request);
+    const { userType } = params as { userType: "public" | "municipality" };
+
+    const url = new URL(request.url);
+    const asOfDate = url.searchParams.get("as_of_date") || undefined;
+
+    if (userType !== resolvedUserType) {
+      return new Response(
+        JSON.stringify({ message: "Forbidden" }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    try {
+      const trendsRes = await fetch(`${BACKEND_API_URL}/dashboard/trends`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          as_of_date: asOfDate || null,
+        }),
+      });
+
+      if (!trendsRes.ok) {
+        const errorText = await trendsRes.text();
+        return new Response(
+          JSON.stringify({ message: "Erreur backend trends", detail: errorText }),
+          {
+            status: trendsRes.status,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      return await trendsRes.json();
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ message: "Erreur backend" }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+  })
+
+  // Endpoint for weekly report PDF download
+  .get("/api/weekly-reports/:userType", async ({ params, request }) => {
+    const resolvedUserType = await resolveUserType(request);
+    const { userType } = params as { userType: "public" | "municipality" };
+
+    const url = new URL(request.url);
+    const language = url.searchParams.get("language") || "fr";
+
+    if (userType !== resolvedUserType) {
+      return new Response(
+        JSON.stringify({ message: "Forbidden" }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    try {
+      const reportRes = await fetch(
+        `${BACKEND_API_URL}/last_weekly_report?language=${encodeURIComponent(language)}`
+      );
+
+      if (!reportRes.ok) {
+        const errorText = await reportRes.text();
+        return new Response(errorText, {
+          status: reportRes.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const pdfBuffer = await reportRes.arrayBuffer();
+      const normalizedLang = language.trim().toLowerCase().startsWith("en") ? "en" : "fr";
+      const filename = `weekly_report_${normalizedLang}.pdf`;
+
+      return new Response(pdfBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+        },
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ message: "Erreur backend" }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+  })
+
   // Backward compatibility endpoint - combines heatmap-weather and wordcloud
   .get("/api/dashboard-data/:userType", async ({ params, request }) => {
     const resolvedUserType = await resolveUserType(request);
@@ -590,7 +687,7 @@ const app = new Elysia()
       : timeRangeToDates(timeRange);
 
     try {
-      const [heatmapRes, weatherRes, wordCloudRes] = await Promise.all([
+      const [heatmapRes, wordCloudRes] = await Promise.all([
         fetch(`${BACKEND_API_URL}/dashboard/collision-heatmap`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -599,15 +696,6 @@ const app = new Elysia()
               ? `${startDateParam} to ${endDateParam}`
               : timeRange,
             severity_filter: Number.isFinite(severityFilter) ? severityFilter : undefined,
-          }),
-        }),
-        fetch(`${BACKEND_API_URL}/dashboard/weather-correlation`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            start_date: dateRange.startDate,
-            end_date: dateRange.endDate,
-            frequency: "week",
           }),
         }),
         fetch(`${BACKEND_API_URL}/dashboard/wordcloud-311`, {
@@ -621,15 +709,10 @@ const app = new Elysia()
       ]);
 
       let heatmapData = null;
-      let weatherCorrelation = null;
       let wordCloudData = null;
 
       if (heatmapRes.ok) {
         heatmapData = await heatmapRes.json();
-      }
-
-      if (weatherRes.ok) {
-        weatherCorrelation = await weatherRes.json();
       }
 
       if (wordCloudRes.ok) {
@@ -639,7 +722,6 @@ const app = new Elysia()
       return {
         heatmapData,
         wordCloudData,
-        weatherCorrelation,
         userType: resolvedUserType,
       };
     } catch (error) {
@@ -653,7 +735,7 @@ const app = new Elysia()
     }
   })
 
-  .listen(3000, () => {
+  .listen({ port: 3000, idleTimeout: 120 }, () => {
     console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("🚀 MobilityCopilot Web running at http://localhost:3000");
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -689,7 +771,11 @@ function BaseLayout(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MobilityCopilot</title>
+    <script src="/public/js/language.js"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@14.1.1/lib/marked.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <link rel="stylesheet" href="/public/css/style.css">
     <link rel="stylesheet" href="/public/css/colors-${userType}.css">
@@ -853,13 +939,32 @@ function SignupPage(props?: { error?: string }) {
 function DashboardPage(userType: "public" | "municipality") {
   const modeLabel = userType === "municipality" ? "Municipalité" : "Public";
   return BaseLayout(`
+    <!-- Mobile Tab Navigation -->
+    <div class="mobile-tabs">
+      <button class="tab-button active" data-tab="chat" onclick="switchMobileTab('chat')">
+        <span class="tab-icon">💬</span>
+        <span class="tab-label">Chat</span>
+      </button>
+      <button class="tab-button" data-tab="dashboard" onclick="switchMobileTab('dashboard')">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">Dashboard</span>
+      </button>
+    </div>
+
     <div class="dashboard-container">
       <!-- Left Panel: Chat -->
-      <div class="chat-panel">
+      <div class="chat-panel active-panel">
         <div class="chat-header">
           <h2>Assistant MobilityCopilot</h2>
-          <div class="mode-indicator">
-            <span class="toggle-label">Mode: <span id="mode-display">${modeLabel}</span></span>
+          <div class="chat-header-actions">
+            <div class="mode-indicator">
+              <span class="toggle-label">Mode: <span id="mode-display">${modeLabel}</span></span>
+            </div>
+            <form method="post" action="/auth/logout" class="logout-form-mobile">
+              <button class="btn-logout" type="submit">
+                Déconnexion
+              </button>
+            </form>
           </div>
         </div>
 
@@ -878,6 +983,7 @@ function DashboardPage(userType: "public" | "municipality") {
               name="message" 
               placeholder="Posez votre question..."
               class="chat-input"
+              autocomplete="off"
               required
             />
             <button type="submit" class="btn-send">
@@ -898,48 +1004,42 @@ function DashboardPage(userType: "public" | "municipality") {
           </form>
         </div>
 
-        <div class="dashboard-filters">
-          <div class="filter-group">
-            <label for="start-date" class="filter-label">Debut</label>
-            <input id="start-date" type="date" class="filter-input" />
-          </div>
-          <div class="filter-group">
-            <label for="end-date" class="filter-label">Fin</label>
-            <input id="end-date" type="date" class="filter-input" />
-          </div>
-          <div class="filter-group">
-            <label for="severity-filter" class="filter-label">Gravite</label>
-            <select id="severity-filter" class="filter-select">
-              <option value="all" selected>Toutes</option>
-              <option value="4">Mortel</option>
-              <option value="3">Grave</option>
-              <option value="2">Leger</option>
-              <option value="1">Dommages</option>
-              <option value="0">Materiel</option>
-            </select>
-          </div>
-          <button class="filter-button" id="apply-filters" type="button">Appliquer</button>
-        </div>
-
         <div class="dashboard-grid">
           <!-- Card 1: Heatmap -->
           <div class="dashboard-card heatmap-card">
-            <h3>Carte des Collisions</h3>
+            <div class="card-header-row">
+              <h3>Carte des Collisions</h3>
+            </div>
+            <div class="card-controls dashboard-filters">
+              <div class="filter-group">
+                <label for="start-date" class="filter-label">Debut</label>
+                <input id="start-date" type="date" class="filter-input" />
+              </div>
+              <div class="filter-group">
+                <label for="end-date" class="filter-label">Fin</label>
+                <input id="end-date" type="date" class="filter-input" />
+              </div>
+              <div class="filter-group">
+                <label for="severity-filter" class="filter-label">Gravite</label>
+                <select id="severity-filter" class="filter-select">
+                  <option value="all" selected>Toutes</option>
+                  <option value="4">Mortel</option>
+                  <option value="3">Grave</option>
+                  <option value="2">Leger</option>
+                  <option value="1">Dommages</option>
+                  <option value="0">Materiel</option>
+                </select>
+              </div>
+              <button class="filter-button" id="apply-filters" type="button">Appliquer</button>
+            </div>
+
             <div id="heatmap-container" class="map-container">
               <!-- Mapbox/Leaflet will be mounted here -->
               <div class="placeholder">Chargement de la carte...</div>
             </div>
           </div>
 
-          <!-- Card 2: Weather Correlation -->
-          <div class="dashboard-card weather-card">
-            <h3>Corrélation Météo</h3>
-            <div id="weather-chart-container" class="chart-container">
-              <div class="placeholder">Chargement du graphique...</div>
-            </div>
-          </div>
-
-          <!-- Card 3: Word Cloud -->
+          <!-- Card 2: Word Cloud -->
           <div class="dashboard-card wordcloud-card">
             <div class="card-header-row">
               <h3>Requêtes 311</h3>
@@ -955,11 +1055,84 @@ function DashboardPage(userType: "public" | "municipality") {
               <div class="placeholder">Chargement du nuage de mots...</div>
             </div>
           </div>
+
+          <!-- Card 4: Trends -->
+          <div class="dashboard-card trends-card">
+            <h3>Tendances</h3>
+            <div class="trends-filters">
+              <input 
+                type="date" 
+                id="trends-date" 
+                class="filter-input" 
+                title="Date pour laquelle calculer les tendances"
+              />
+              <button class="filter-button subtle" id="apply-trends" type="button">Appliquer</button>
+            </div>
+            <div id="trends-container" class="chart-container">
+              <div class="placeholder">Chargement des tendances...</div>
+            </div>
+          </div>
+
+          <!-- Card 5: Weekly Reports -->
+          <div class="dashboard-card weekly-reports-card">
+            <h3>Rapports Hebdomadaires</h3>
+            <div id="weekly-reports-container" class="chart-container">
+              <div class="placeholder">Chargement des rapports...</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <script src="/public/js/dashboard.js?v=8"></script>
+    <script>
+      // Mobile tab switching
+      function switchMobileTab(tabName) {
+        // Update button states
+        document.querySelectorAll('.tab-button').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+        
+        // Show/hide panels
+        const chatPanel = document.querySelector('.chat-panel');
+        const dashboardPanel = document.querySelector('.dashboard-panel');
+        
+        if (tabName === 'chat') {
+          chatPanel.classList.add('active-panel');
+          dashboardPanel.classList.remove('active-panel');
+        } else {
+          chatPanel.classList.remove('active-panel');
+          dashboardPanel.classList.add('active-panel');
+        }
+        
+        // Store preference
+        localStorage.setItem('activeMobileTab', tabName);
+      }
+      
+      // Restore last active tab on page load (mobile only)
+      document.addEventListener('DOMContentLoaded', function() {
+        if (window.innerWidth <= 1024) {
+          const lastTab = localStorage.getItem('activeMobileTab') || 'chat';
+          switchMobileTab(lastTab);
+        }
+      });
+      
+      // Handle window resize
+      window.addEventListener('resize', function() {
+        if (window.innerWidth > 1024) {
+          // Desktop: show both panels
+          document.querySelector('.chat-panel').classList.add('active-panel');
+          document.querySelector('.dashboard-panel').classList.add('active-panel');
+        } else {
+          // Mobile: restore saved tab
+          const lastTab = localStorage.getItem('activeMobileTab') || 'chat';
+          switchMobileTab(lastTab);
+        }
+      });
+      
+      // Export for global use
+      window.switchMobileTab = switchMobileTab;
+    </script>
+    <script src="/public/js/dashboard.js?v=10"></script>
   `, userType);
 }
 

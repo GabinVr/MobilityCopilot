@@ -17,6 +17,7 @@ def test_ambiguity_node_returns_structured_fields(
                 is_ambiguous=True,
                 clarification_options=["Option A", "Option B"],
                 need_external_data=True,
+                language="français",
             )
 
     class FakeLLM:
@@ -59,6 +60,7 @@ def test_ambiguity_node_handles_empty_messages(
                 is_ambiguous=False,
                 clarification_options=[],
                 need_external_data=False,
+                language="français",
             )
 
     invoker = FakeStructuredInvoker()

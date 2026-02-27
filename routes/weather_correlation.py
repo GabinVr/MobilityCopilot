@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from cache import cache
 from data.dashboard_queries import WeatherCorrelationQuery
@@ -14,11 +15,12 @@ async def weather_correlation_endpoint(request: WeatherCorrelationRequest):
     """
     try:
         query = WeatherCorrelationQuery()
-        result = query.execute(
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: query.execute(
             start_date=request.start_date,
             end_date=request.end_date,
             frequency=request.frequency
-        )
+        ))
         
         # Vérifier si une erreur est retournée par la query
         if "error" in result:

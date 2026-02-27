@@ -62,6 +62,7 @@ services:
       - ./data:/app/data
       - ./rag:/app/rag
       - ./utils:/app/utils
+      - ./.reports:/app/.reports
     env_file: 
       - ./.env
     environment:
