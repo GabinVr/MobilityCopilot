@@ -65,12 +65,16 @@ class TrendRequest(BaseModel):
     )
 
 
+class TrendItem(BaseModel):
+    metric: str
+    period: str
+    comparison: str
+    interpretation: str
+    direction: str  # "up" | "down" | "stable"
+    pct_change: Optional[float] = None
+
+
 class TrendResponse(BaseModel):
     generated_at: str
     as_of_date: str
-    monthly_collisions: Dict[str, Any]
-    pedestrian_3m_vs_last_year: Dict[str, Any]
-    hourly_peak_shift: Dict[str, Any]
-    weekly_311_changes: Dict[str, Any]
-    weak_signals_311: Dict[str, Any]
-    insights: List[str]
+    trends: List[TrendItem]

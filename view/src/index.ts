@@ -735,7 +735,7 @@ const app = new Elysia()
     }
   })
 
-  .listen(3000, () => {
+  .listen({ port: 3000, idleTimeout: 120 }, () => {
     console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("🚀 MobilityCopilot Web running at http://localhost:3000");
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -1132,7 +1132,7 @@ function DashboardPage(userType: "public" | "municipality") {
       // Export for global use
       window.switchMobileTab = switchMobileTab;
     </script>
-    <script src="/public/js/dashboard.js?v=9"></script>
+    <script src="/public/js/dashboard.js?v=10"></script>
   `, userType);
 }
 

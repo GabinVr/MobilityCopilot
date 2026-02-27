@@ -427,55 +427,24 @@ class TrendQuery(DashboardQuery):
             "signals": signals[:top_n],
         }
 
-    def build_trend_report(self, as_of_date: Optional[str] = None) -> Dict[str, Any]:
+    def build_raw_stats(self, as_of_date: Optional[str] = None) -> Dict[str, Any]:
+        """Return raw computed statistics ready to be interpreted by the LLM."""
         collisions_df = self._load_collisions()
         requests_df = self._load_requests_311()
         as_of = self._resolve_as_of_date(collisions_df, requests_df, as_of_date=as_of_date)
 
-        monthly = self.monthly_collision_trend(collisions_df=collisions_df, as_of=as_of)
-        pedestrian = self.pedestrian_3m_vs_last_year(collisions_df=collisions_df, as_of=as_of)
-        peak_shift = self.hourly_peak_shift(collisions_df=collisions_df, as_of=as_of)
-        top_311 = self.weekly_311_top_changes(requests_df=requests_df, as_of=as_of)
-        weak_signals = self.weak_signals_311(requests_df=requests_df, as_of=as_of)
-
-        insights: List[str] = []
-        if "pct_change" in monthly and monthly.get("pct_change") is not None:
-            insights.append(
-                f"Collisions: {monthly['current_period']} vs {monthly['previous_period']} = "
-                f"{monthly['pct_change']}% ({monthly['direction']})."
-            )
-        if "pct_change" in pedestrian and pedestrian.get("pct_change") is not None:
-            insights.append(
-                "Collisions pietons (3 mois vs meme periode N-1): "
-                f"{pedestrian['pct_change']}% ({pedestrian['direction']})."
-            )
-        if "shift_hours" in peak_shift and peak_shift.get("shift_hours") is not None:
-            insights.append(
-                "Pic horaire des collisions: "
-                f"{peak_shift['previous_window']['peak_hour']}h -> "
-                f"{peak_shift['recent_window']['peak_hour']}h "
-                f"(decalage {peak_shift['shift_hours']}h)."
-            )
-        if weak_signals.get("signals"):
-            first_signal = weak_signals["signals"][0]
-            insights.append(
-                f"Signal faible 311: '{first_signal['activity']}' en hausse "
-                f"({first_signal['start_count']} -> {first_signal['end_count']} sur {weak_signals['window_weeks']} semaines)."
-            )
-
         return {
             "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "as_of_date": as_of.strftime("%Y-%m-%d"),
-            "monthly_collisions": monthly,
-            "pedestrian_3m_vs_last_year": pedestrian,
-            "hourly_peak_shift": peak_shift,
-            "weekly_311_changes": top_311,
-            "weak_signals_311": weak_signals,
-            "insights": insights,
+            "monthly_collisions": self.monthly_collision_trend(collisions_df=collisions_df, as_of=as_of),
+            "pedestrian_3m_vs_last_year": self.pedestrian_3m_vs_last_year(collisions_df=collisions_df, as_of=as_of),
+            "hourly_peak_shift": self.hourly_peak_shift(collisions_df=collisions_df, as_of=as_of),
+            "weekly_311_changes": self.weekly_311_top_changes(requests_df=requests_df, as_of=as_of),
+            "weak_signals_311": self.weak_signals_311(requests_df=requests_df, as_of=as_of),
         }
 
     def execute(self, **kwargs) -> Dict[str, Any]:
-        return self.build_trend_report(as_of_date=kwargs.get("as_of_date"))
+        return self.build_raw_stats(as_of_date=kwargs.get("as_of_date"))
 
 
 if __name__ == "__main__":

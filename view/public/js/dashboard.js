@@ -172,94 +172,50 @@ function updateTrendsData(data) {
   const container = document.getElementById("trends-container");
   if (!container) return;
 
-  try {
-    const html = `
-      <div class="trends-content">
-        <div class="trends-section">
-          <h4>Collision Mensuelles</h4>
-          <div id="trends-monthly-chart" class="trend-chart"></div>
+  const trends = data.trends || [];
+
+  if (!trends.length) {
+    container.innerHTML = `<div class="viz-placeholder">Aucune tendance disponible</div>`;
+    return;
+  }
+
+  const metricLabels = {
+    "pedestrian_collisions": "Collisions piétons",
+    "monthly_collisions": "Collisions mensuelles",
+    "hourly_peak": "Pic horaire",
+    "311_top_change": "Requêtes 311",
+    "weak_signal_311": "Signal faible 311",
+  };
+
+  const directionIcon = { up: "↑", down: "↓", stable: "→" };
+  const directionClass = { up: "trend-up", down: "trend-down", stable: "trend-stable" };
+
+  const cards = trends.map((trend) => {
+    const icon = directionIcon[trend.direction] || "→";
+    const cls = directionClass[trend.direction] || "trend-stable";
+    const label = metricLabels[trend.metric] || trend.metric;
+    const pctStr =
+      trend.pct_change != null
+        ? `<span class="trend-pct ${cls}">${trend.pct_change > 0 ? "+" : ""}${trend.pct_change.toFixed(1)}%</span>`
+        : "";
+
+    return `
+      <div class="trend-card">
+        <div class="trend-card-header">
+          <span class="trend-icon ${cls}">${icon}</span>
+          <span>${label}</span>
+          ${pctStr}
         </div>
-        <div class="trends-section">
-          <h4>Comparaison Piétons</h4>
-          <div id="trends-pedestrian-chart" class="trend-chart"></div>
+        <div class="trend-meta">
+          <span class="trend-period">${trend.period}</span>
+          <span class="trend-comparison">${trend.comparison}</span>
         </div>
-        <div class="trends-section">
-          <h4>Pic Horaire</h4>
-          <div id="trends-hourly-chart" class="trend-chart"></div>
-        </div>
-        <div class="trends-section">
-          <h4>Insights</h4>
-          <div id="trends-insights" class="trends-insights"></div>
-        </div>
+        <p class="trend-interpretation">${trend.interpretation}</p>
       </div>
     `;
+  }).join("");
 
-    container.innerHTML = html;
-
-    // Render charts if data exists
-    if (data.monthly_collisions) {
-      renderMonthlyCollisionsChart(data.monthly_collisions);
-    }
-    if (data.pedestrian_3m_vs_last_year) {
-      renderPedestrianChart(data.pedestrian_3m_vs_last_year);
-    }
-    if (data.hourly_peak_shift) {
-      renderHourlyPeakChart(data.hourly_peak_shift);
-    }
-    if (data.insights) {
-      renderInsights(data.insights);
-    }
-  } catch (error) {
-    console.error("Error updating trends data:", error);
-    container.innerHTML = `<div class="viz-placeholder">Erreur d'affichage des tendances</div>`;
-  }
-}
-
-function renderMonthlyCollisionsChart(data) {
-  const chartDiv = document.getElementById("trends-monthly-chart");
-  if (!chartDiv || !window.Plotly) return;
-
-  const trace = {
-    x: data.months || [],
-    y: data.values || [],
-    type: "scatter",
-    mode: "lines+markers",
-    fill: "tozeroy",
-    line: { color: "var(--accent-primary)" },
-  };
-
-  Plotly.newPlot(chartDiv, [trace], { responsive: true, displayModeBar: false }, { responsive: true });
-}
-
-function renderPedestrianChart(data) {
-  const chartDiv = document.getElementById("trends-pedestrian-chart");
-  if (!chartDiv || !window.Plotly) return;
-
-  const trace = {
-    x: ["3M", "Année dernière"],
-    y: [data["3m"] || 0, data["last_year"] || 0],
-    type: "bar",
-    marker: { color: ["#3B82F6", "#10B981"] },
-  };
-
-  Plotly.newPlot(chartDiv, [trace], { responsive: true, displayModeBar: false }, { responsive: true });
-}
-
-function renderHourlyPeakChart(data) {
-  const chartDiv = document.getElementById("trends-hourly-chart");
-  if (!chartDiv) return;
-
-  chartDiv.innerHTML = `<div class="trend-text">${data.description || "Changement du pic horaire détecté"}</div>`;
-}
-
-function renderInsights(insights) {
-  const insightsDiv = document.getElementById("trends-insights");
-  if (!insightsDiv) return;
-
-  const insightsList = Array.isArray(insights) ? insights : [insights];
-  insightsDiv.innerHTML = insightsList
-    .map((insight) => `<div class="insight-item">• ${insight}</div>`)
-    .join("");
+  container.innerHTML = `<div class="trends-list">${cards}</div>`;
 }
 
 // ============ WEEKLY REPORTS DATA ============
@@ -645,9 +601,7 @@ function updateWordCloudData(data) {
 function initializeTrends() {
   const container = document.getElementById("trends-container");
   if (!container) return;
-  container.innerHTML = `
-    <div class="viz-placeholder">Chargement des tendances...</div>
-  `;
+  container.innerHTML = `<div class="viz-placeholder">Chargement des tendances...</div>`;
 }
 
 // ============ WEEKLY REPORTS INITIALIZATION ============
